@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "code-puppy-gui"
+version = "0.1.0"
+description = "Tiny desktop GUI that wraps the Code Puppy agent"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Alberto", email = "alberto@example.com" }
+]
+dependencies = [
+  "code-puppy>=0.0.301",
+]
+
+[project.scripts]
+code-puppy-gui = "code_puppy_gui.app:main"

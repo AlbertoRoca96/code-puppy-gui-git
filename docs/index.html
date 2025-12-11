@@ -95,7 +95,7 @@
       }
       textarea {
         width: 100%;
-        min-height: 120px;
+        min-height: 130px;
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(15, 17, 32, 0.85);
@@ -171,7 +171,7 @@
         font-family: inherit;
       }
       .log-pane {
-        max-height: 240px;
+        max-height: 260px;
         overflow-y: auto;
         background: rgba(3, 7, 18, 0.75);
         border-radius: 14px;
@@ -186,13 +186,13 @@
         border-left: 3px solid transparent;
         padding-left: 0.75rem;
       }
-      .log-entry[data-type="agent_response"] {
-        border-color: #4ade80;
-        color: #d9f99d;
+      .log-entry[data-type="request"] {
+        border-color: #a78bfa;
+        color: #d8b4fe;
       }
-      .log-entry[data-type="error"] {
-        border-color: #f87171;
-        color: #fecaca;
+      .log-entry[data-type="usage"] {
+        border-color: #4ade80;
+        color: #d1fae5;
       }
       .status-line {
         margin-top: 0.5rem;
@@ -228,26 +228,29 @@
       const MODEL_PRESETS = [
         {
           id: "syn-claude",
-          label: "SYN Claude 3.5 Sonnet",
-          hint: "Balanced reasoning. Great default.",
-          instructions: "You are Code Puppy running on Claude 3.5 Sonnet through the SYN platform. Respond like a senior staff engineer: concise, actionable, with tactical bullet points when helpful.",
+          label: "Claude 4.5 Sonnet (SYN)",
+          model: "claude-4-5-sonnet",
+          instructions: "You are Code Puppy running on Claude Sonnet. Be concise, cite key assumptions, and sprinkle in a playful bark when wrapping up.",
+          temperature: 0.15,
         },
         {
-          id: "openai-gpt4o",
-          label: "OpenAI GPT-4o",
-          hint: "Creative + expressive.",
-          instructions: "You are Code Puppy supercharged by GPT-4o. Offer creative detail, note edge cases, and end with a short playful bark.",
+          id: "openai-gpt5",
+          label: "OpenAI GPT-5.1",
+          model: "gpt-5.1",
+          instructions: "You are Code Puppy wired into GPT-5.1. Deliver structured plans, highlight risks, and close with an actionable checklist.",
+          temperature: 0.2,
         },
         {
-          id: "groq-llama3",
-          label: "Groq Llama-3 70B",
-          hint: "Ultra fast experimentation.",
-          instructions: "You are Code Puppy riding Groq's Llama-3 acceleration. Prefer command snippets, highlight validation steps, and keep humor short + dry.",
+          id: "groq-glm",
+          label: "Zai GLM-4.6 (Groq-style)",
+          model: "zai-glm-4.6-api",
+          instructions: "You are Code Puppy on a Groq-fast GLM. Bias toward command snippets, keep jokes short, and assume the user loves terminal output.",
+          temperature: 0.25,
         },
       ];
 
       const defaultMessages = [
-        { role: "assistant", content: "Woof! I’m Code Puppy. Pick a model, drop a task, and I’ll run it through the worker backend while exposing every log line." },
+        { role: "assistant", content: "Woof! I’m Code Puppy. Pick a SYN/OpenAI model, toss me a task, and I’ll respond via the new /api/chat proxy." },
       ];
 
       const defaultApiBase = window.CODE_PUPPY_API_BASE || "https://code-puppy-api.fly.dev";
@@ -266,24 +269,17 @@
         )
       );
 
-      const LogPane = ({ logs }) => (
-        logs.length === 0
-          ? React.createElement("p", { style: { color: "#94a3b8", margin: 0 } }, "No worker logs yet. Run something!")
-          : logs.map((entry, idx) =>
+      const DiagnosticsPane = ({ entries }) => (
+        entries.length === 0
+          ? React.createElement("p", { style: { color: "#94a3b8", margin: 0 } }, "No diagnostics yet. Send a prompt to see the payload + SYN usage.")
+          : entries.map((entry, idx) =>
               React.createElement(
                 "div",
                 { key: idx, className: "log-entry", "data-type": entry.event },
-                `[${entry.event ?? "log"}] ${entry.content ?? ""}`
+                entry.content
               )
             )
       );
-
-      function buildPrompt(history, systemInstructions, modelHint) {
-        const transcript = history
-          .map((msg) => `${msg.role === "user" ? "Human" : "Code Puppy"}: ${msg.content}`)
-          .join("\n");
-        return `${systemInstructions}\n\nModel context: ${modelHint}.\n\nConversation so far:\n${transcript}\n\nCode Puppy:`;
-      }
 
       function App() {
         const [messages, setMessages] = useState(defaultMessages);
@@ -291,8 +287,8 @@
         const [presetId, setPresetId] = useState(MODEL_PRESETS[0].id);
         const [systemPrompt, setSystemPrompt] = useState(MODEL_PRESETS[0].instructions);
         const [apiBase, setApiBase] = useState(defaultApiBase);
-        const [logs, setLogs] = useState([]);
-        const [exitCode, setExitCode] = useState(null);
+        const [diagnostics, setDiagnostics] = useState([]);
+        const [usage, setUsage] = useState(null);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState("");
 
@@ -307,31 +303,41 @@
           if (!content || loading) return;
 
           const outbound = { role: "user", content };
-          const draftHistory = [...messages, outbound];
-          setMessages(draftHistory);
+          const history = [...messages, outbound];
+          setMessages(history);
           setComposer("");
           setError("");
-          setLogs([]);
-          setExitCode(null);
+          setDiagnostics([]);
+          setUsage(null);
           setLoading(true);
 
+          const payload = {
+            model: preset.model,
+            systemPrompt,
+            temperature: preset.temperature,
+            messages: history.map(({ role, content: text }) => ({ role, content: text })),
+          };
+          const base = apiBase.replace(/\/$/, "");
+
           try {
-            const payload = buildPrompt(draftHistory, systemPrompt, preset.hint);
-            const base = apiBase.replace(/\/$/, "");
-            const res = await fetch(`${base}/api/run`, {
+            const res = await fetch(`${base}/api/chat`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: payload }),
+              body: JSON.stringify(payload),
             });
             if (!res.ok) {
               const detail = await res.json().catch(() => ({}));
-              throw new Error(detail.detail || `Backend responded with ${res.status}`);
+              const message = detail.detail || `Backend responded with ${res.status}`;
+              throw new Error(message);
             }
             const data = await res.json();
-            setLogs(data.logs ?? []);
-            setExitCode(data.exitCode ?? null);
-            const assistantText = (data.response && data.response.trim()) || "No structured response captured. Check the logs.";
-            setMessages([...draftHistory, { role: "assistant", content: assistantText }]);
+            const assistantText = (data.message || "").trim() || "No response returned.";
+            setMessages([...history, { role: "assistant", content: assistantText }]);
+            setDiagnostics([
+              { event: "request", content: JSON.stringify(payload, null, 2) },
+              { event: "usage", content: JSON.stringify(data.usage || {}, null, 2) },
+            ]);
+            setUsage({ model: data.model || preset.model, usage: data.usage || {} });
           } catch (err) {
             setError(err.message || "Unexpected error calling backend");
             setMessages((prev) => prev.slice(0, -1));
@@ -349,8 +355,8 @@
 
         function clearChat() {
           setMessages(defaultMessages);
-          setLogs([]);
-          setExitCode(null);
+          setDiagnostics([]);
+          setUsage(null);
           setError("");
         }
 
@@ -365,9 +371,9 @@
                 "div",
                 null,
                 React.createElement("h1", null, "Code Puppy", React.createElement("span", null, "Chat")),
-                React.createElement("p", null, "Selectable models, a persistent chat log, and full transparency into every log line your puppy agent emits.")
+                React.createElement("p", null, "Selectable models, a persistent chat log, and full transparency into every SYN call.")
               ),
-              React.createElement("div", { className: "badge" }, "https://code-puppy-api.fly.dev")
+              React.createElement("div", { className: "badge" }, apiBase)
             ),
             React.createElement(
               "main",
@@ -417,12 +423,13 @@
                       id: "model-select",
                       value: presetId,
                       onChange: (e) => setPresetId(e.target.value),
+                      disabled: loading,
                     },
                     MODEL_PRESETS.map((option) =>
                       React.createElement(
                         "option",
                         { key: option.id, value: option.id },
-                        `${option.label} — ${option.hint}`
+                        `${option.label}`
                       )
                     )
                   ),
@@ -431,6 +438,7 @@
                     spellCheck: "false",
                     value: systemPrompt,
                     onChange: (e) => setSystemPrompt(e.target.value),
+                    disabled: loading,
                   })
                 ),
                 React.createElement(
@@ -445,18 +453,22 @@
                     onChange: (e) => setApiBase(e.target.value),
                     placeholder: "https://code-puppy-api.fly.dev",
                   }),
-                  React.createElement("p", { className: "status-line" }, "Point this at any deployment running /api/run.")
+                  React.createElement("p", { className: "status-line" }, "Point this at any deployment exposing /api/chat."),
+                  React.createElement(
+                    "p",
+                    { className: "status-line" },
+                    loading
+                      ? "🚧 Chatting with SYN..."
+                      : usage
+                        ? `✅ Model: ${usage.model} • Prompt tok: ${usage.usage?.prompt_tokens ?? 0} • Completion tok: ${usage.usage?.completion_tokens ?? 0}`
+                        : "✅ Idle"
+                  )
                 ),
                 React.createElement(
                   "div",
                   null,
-                  React.createElement("p", { className: "section-title" }, "Worker logs"),
-                  React.createElement("div", { className: "log-pane" }, React.createElement(LogPane, { logs })),
-                  React.createElement(
-                    "p",
-                    { className: "status-line" },
-                    exitCode === null ? "Idle — awaiting your next prompt." : `Last exit code: ${exitCode}`
-                  )
+                  React.createElement("p", { className: "section-title" }, "Diagnostics"),
+                  React.createElement("div", { className: "log-pane" }, React.createElement(DiagnosticsPane, { entries: diagnostics }))
                 )
               )
             )

@@ -75,11 +75,10 @@ We ship a full container build + GitHub Actions pipeline:
 Endpoints:
 
 - `GET /api/health` → `{ "status": "ok" }`
-- `POST /api/run` → `{ exitCode, logs, response, stderr }`
+- `POST /api/chat` → proxies to Synthetic’s OpenAI-compatible endpoint so the web UI can do low-latency chat completions (requires `SYN_API_KEY`).
+- `POST /api/run` → `{ exitCode, logs, response, stderr }` for the legacy worker shell-out.
 
-Each call spawns `python -m code_puppy_gui.worker` behind the scenes and streams its output.
-
-Deploy this anywhere FastAPI is supported. Remember to provision the `SYN_API_KEY` (or any other provider keys) as secrets on the host.
+Each `api/run` call spawns `python -m code_puppy_gui.worker`, while `api/chat` simply relays to the SYN-hosted model of your choice. Deploy this anywhere FastAPI is supported. Remember to provision the `SYN_API_KEY` (or any other provider keys) as secrets on the host.
 
 ---
 
@@ -89,9 +88,9 @@ GitHub Pages serves `docs/` directly → <https://albertoroca96.github.io/code-p
 
 Features:
 - Chat-style conversation history with Shift+Enter support.
-- Model presets (Claude via SYN, GPT-4o, Groq Llama) plus editable system prompt per session.
+- Model presets (SYN Claude, OpenAI GPT-5.1, Zai GLM) that map directly to `/api/chat` models, plus an editable system prompt per session.
 - Adjustable API base URL (defaults to `https://code-puppy-api.fly.dev`).
-- Full worker log stream + exit code badge so you can debug the backend run.
+- Diagnostics drawer that shows the exact payload + SYN usage the backend returns.
 - Root-level `index.html` that redirects to `/docs/` so GitHub Pages works whether it’s configured for `/` or `/docs`.
 
 You can still override the API endpoint at runtime by editing the input field or by setting `window.CODE_PUPPY_API_BASE` before the script runs. If Pages ever shows the README instead of the app, double-check **Settings → Pages** is set to deploy from **main** (either `/` or `/docs` — both now funnel to the chat UI).

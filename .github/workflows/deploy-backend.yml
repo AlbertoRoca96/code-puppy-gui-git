@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      FLY_APP_NAME: code-puppy-api
 
     steps:
       - uses: actions/checkout@v4
@@ -30,13 +32,24 @@ jobs:
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      - name: Ensure Fly app exists
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if flyctl apps show "$FLY_APP_NAME" >/dev/null 2>&1; then
+            echo "Fly app $FLY_APP_NAME already exists."
+          else
+            echo "Creating Fly app $FLY_APP_NAME..."
+            flyctl apps create "$FLY_APP_NAME"
+          fi
+
       - name: Configure secrets
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY }}
         run: |
           if [ -n "$SYN_API_KEY" ]; then
-            flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --config fly.toml --detach
+            flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach
           else
             echo "SYN_API_KEY is empty. Skipping flyctl secrets set."
           fi

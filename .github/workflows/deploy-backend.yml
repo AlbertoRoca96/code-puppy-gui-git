@@ -31,12 +31,15 @@ jobs:
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Configure secrets
-        if: ${{ secrets.SYN_API_KEY != '' }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY }}
         run: |
-          flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --config fly.toml --detach
+          if [ -n "$SYN_API_KEY" ]; then
+            flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --config fly.toml --detach
+          else
+            echo "SYN_API_KEY is empty. Skipping flyctl secrets set."
+          fi
 
       - name: Deploy via Fly.io
         env:

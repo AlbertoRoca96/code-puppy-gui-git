@@ -7,6 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY pyproject.toml /app/
+COPY README.md /app/
 COPY src /app/src
 COPY backend/requirements.txt /app/requirements.txt
 

@@ -3,178 +3,355 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Code Puppy GUI</title>
+    <title>Code Puppy Chat</title>
     <style>
-      * { box-sizing: border-box; }
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
-        font-family: "JetBrains Mono", "Segoe UI", system-ui, sans-serif;
-        background: radial-gradient(circle at top, #10152b, #06070d);
-        color: #f5f5f5;
+        font-family: "Inter", "JetBrains Mono", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
         min-height: 100vh;
+        background: radial-gradient(circle at top, #151726, #05060b 60%);
+        color: #f8fafc;
+        padding: clamp(1rem, 3vw, 2.5rem);
+      }
+      header {
+        max-width: 1200px;
+        margin: 0 auto 1.5rem;
         display: flex;
-        justify-content: center;
-        padding: 2rem 1rem 4rem;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
       }
-      .app-shell {
-        width: min(1100px, 100%);
-        background: rgba(5, 9, 25, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 18px;
-        padding: 2rem;
-        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
-      }
-      h1 {
-        margin: 0 0 0.5rem;
+      header h1 {
+        margin: 0;
         font-size: clamp(2rem, 4vw, 3rem);
       }
-      .tagline {
-        margin: 0 0 2rem;
-        font-size: 1.1rem;
-        color: #d5d9ff;
+      header h1 span {
+        color: #f472b6;
+      }
+      header p {
+        margin: 0;
+        color: #cbd5f5;
+        max-width: 560px;
+      }
+      .badge {
+        padding: 0.35rem 0.8rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: #e0e7ff;
+        background: rgba(99, 102, 241, 0.15);
+      }
+      .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+        gap: 1.5rem;
+      }
+      .panel {
+        background: rgba(9, 11, 25, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 20px;
+        padding: clamp(1.25rem, 2vw, 1.8rem);
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.45);
+      }
+      .chat-window {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .messages {
+        min-height: 420px;
+        max-height: 520px;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+      }
+      .bubble {
+        padding: 1rem;
+        border-radius: 16px;
+        line-height: 1.55;
+        font-size: 0.98rem;
+        white-space: pre-wrap;
+      }
+      .bubble.user {
+        background: rgba(244, 114, 182, 0.12);
+        border: 1px solid rgba(244, 114, 182, 0.4);
+        align-self: flex-end;
+      }
+      .bubble.assistant {
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.35);
+        align-self: flex-start;
       }
       textarea {
         width: 100%;
-        min-height: 140px;
-        padding: 1rem;
-        background: rgba(255, 255, 255, 0.04);
+        min-height: 120px;
+        border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
+        background: rgba(15, 17, 32, 0.85);
         color: inherit;
+        padding: 1rem;
         font-size: 1rem;
         resize: vertical;
       }
+      .composer {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
       button {
-        background: linear-gradient(120deg, #f72585, #7209b7);
         border: none;
-        color: #fff;
-        font-weight: 600;
-        padding: 0.85rem 1.8rem;
         border-radius: 999px;
+        padding: 0.85rem 1.8rem;
+        font-weight: 600;
         cursor: pointer;
-        margin-top: 1rem;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button.primary {
+        background: linear-gradient(120deg, #f72585, #7c3aed);
+        color: #fff;
+      }
+      button.secondary {
+        background: rgba(148, 163, 184, 0.15);
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.4);
       }
       button:disabled {
         opacity: 0.4;
         cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
       }
       button:not(:disabled):hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 30px rgba(247, 37, 133, 0.35);
+        box-shadow: 0 12px 32px rgba(244, 114, 182, 0.28);
       }
-      .status-bar {
-        margin-top: 1.5rem;
+      .section-title {
         font-size: 0.95rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 1rem;
-        align-items: center;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #94a3b8;
+        margin-bottom: 0.4rem;
       }
-      .logs-pane {
-        margin-top: 1.5rem;
-        background: rgba(0, 0, 0, 0.45);
+      label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+        display: block;
+      }
+      select,
+      input,
+      .system-input {
+        width: 100%;
+        padding: 0.75rem 0.95rem;
         border-radius: 12px;
-        padding: 1rem;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        max-height: 380px;
-        overflow: auto;
-      }
-      .log-line {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(15, 16, 27, 0.92);
+        color: inherit;
         font-size: 0.95rem;
-        margin-bottom: 0.7rem;
-        line-height: 1.35;
+      }
+      .system-input {
+        min-height: 110px;
+        resize: vertical;
+        font-family: inherit;
+      }
+      .log-pane {
+        max-height: 240px;
+        overflow-y: auto;
+        background: rgba(3, 7, 18, 0.75);
+        border-radius: 14px;
+        border: 1px solid rgba(59, 130, 246, 0.18);
+        padding: 1rem;
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85rem;
+        line-height: 1.4;
+      }
+      .log-entry {
+        margin-bottom: 0.85rem;
         border-left: 3px solid transparent;
-        padding-left: 0.8rem;
+        padding-left: 0.75rem;
       }
-      .log-line[data-type="agent_response"] {
+      .log-entry[data-type="agent_response"] {
         border-color: #4ade80;
-        color: #d1f7c4;
+        color: #d9f99d;
       }
-      .log-line[data-type="error"] {
+      .log-entry[data-type="error"] {
         border-color: #f87171;
         color: #fecaca;
       }
-      .log-line:last-child { margin-bottom: 0; }
-      .error-banner {
-        background: rgba(248, 113, 113, 0.15);
-        border: 1px solid rgba(248, 113, 113, 0.4);
-        color: #ffe4e6;
-        padding: 0.75rem 1rem;
-        border-radius: 10px;
-        margin-top: 1rem;
-      }
-      .api-hint {
+      .status-line {
         margin-top: 0.5rem;
         font-size: 0.85rem;
-        color: #9ca3af;
+        color: #cbd5f5;
       }
-      @media (max-width: 600px) {
-        .app-shell { padding: 1.25rem; }
-        button { width: 100%; }
+      .error-banner {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.35);
+        color: #ffe4e6;
+        padding: 0.8rem;
+        border-radius: 12px;
+        margin-top: 0.75rem;
+      }
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="app-shell">
-      <h1>Code Puppy<span style="color:#f72585">.</span></h1>
-      <p class="tagline">A sassier, sharper coding agent right in your browser.</p>
-      <div id="root"></div>
-    </div>
+    <div id="app-root"></div>
 
     <script type="module">
-      import React, { useState } from "https://esm.sh/react@18.2.0";
+      import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.2.0";
       import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+
+      const MODEL_PRESETS = [
+        {
+          id: "syn-claude",
+          label: "SYN Claude 3.5 Sonnet",
+          hint: "Balanced reasoning. Great default.",
+          instructions: "You are Code Puppy running on Claude 3.5 Sonnet through the SYN platform. Respond like a senior staff engineer: concise, actionable, with tactical bullet points when helpful.",
+        },
+        {
+          id: "openai-gpt4o",
+          label: "OpenAI GPT-4o",
+          hint: "Creative + expressive.",
+          instructions: "You are Code Puppy supercharged by GPT-4o. Offer creative detail, note edge cases, and end with a short playful bark.",
+        },
+        {
+          id: "groq-llama3",
+          label: "Groq Llama-3 70B",
+          hint: "Ultra fast experimentation.",
+          instructions: "You are Code Puppy riding Groq's Llama-3 acceleration. Prefer command snippets, highlight validation steps, and keep humor short + dry.",
+        },
+      ];
+
+      const defaultMessages = [
+        { role: "assistant", content: "Woof! I’m Code Puppy. Pick a model, drop a task, and I’ll run it through the worker backend while exposing every log line." },
+      ];
 
       const defaultApiBase = window.CODE_PUPPY_API_BASE || "https://code-puppy-api.fly.dev";
 
-      function LogLine({ entry }) {
-        const time = new Date().toLocaleTimeString();
-        return (
-          React.createElement(
-            "div",
-            { className: "log-line", "data-type": entry.event },
-            `[${time}] ${entry.event}: ${entry.content ?? ""}`
+      const MessageList = ({ messages }) => (
+        React.createElement(
+          React.Fragment,
+          null,
+          messages.map((msg, idx) =>
+            React.createElement(
+              "div",
+              { key: idx, className: `bubble ${msg.role}` },
+              msg.content
+            )
           )
-        );
+        )
+      );
+
+      const LogPane = ({ logs }) => (
+        logs.length === 0
+          ? React.createElement("p", { style: { color: "#94a3b8", margin: 0 } }, "No worker logs yet. Run something!")
+          : logs.map((entry, idx) =>
+              React.createElement(
+                "div",
+                { key: idx, className: "log-entry", "data-type": entry.event },
+                `[${entry.event ?? "log"}] ${entry.content ?? ""}`
+              )
+            )
+      );
+
+      function buildPrompt(history, systemInstructions, modelHint) {
+        const transcript = history
+          .map((msg) => `${msg.role === "user" ? "Human" : "Code Puppy"}: ${msg.content}`)
+          .join("\n");
+        return `${systemInstructions}\n\nModel context: ${modelHint}.\n\nConversation so far:\n${transcript}\n\nCode Puppy:`;
       }
 
       function App() {
-        const [prompt, setPrompt] = useState("Explain why Code Puppy beats every IDE.");
+        const [messages, setMessages] = useState(defaultMessages);
+        const [composer, setComposer] = useState("");
+        const [presetId, setPresetId] = useState(MODEL_PRESETS[0].id);
+        const [systemPrompt, setSystemPrompt] = useState(MODEL_PRESETS[0].instructions);
         const [apiBase, setApiBase] = useState(defaultApiBase);
         const [logs, setLogs] = useState([]);
+        const [exitCode, setExitCode] = useState(null);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState("");
-        const [exitCode, setExitCode] = useState(null);
 
-        async function runTask() {
-          if (!prompt.trim()) {
-            setError("Give the puppy a task first!");
-            return;
-          }
+        const preset = useMemo(() => MODEL_PRESETS.find((p) => p.id === presetId) || MODEL_PRESETS[0], [presetId]);
+
+        useEffect(() => {
+          setSystemPrompt(preset.instructions);
+        }, [preset.id]);
+
+        async function sendMessage() {
+          const content = composer.trim();
+          if (!content || loading) return;
+
+          const outbound = { role: "user", content };
+          const draftHistory = [...messages, outbound];
+          setMessages(draftHistory);
+          setComposer("");
           setError("");
+          setLogs([]);
           setExitCode(null);
           setLoading(true);
-          setLogs([]);
 
           try {
-            const res = await fetch(`${apiBase}/api/run`, {
+            const payload = buildPrompt(draftHistory, systemPrompt, preset.hint);
+            const base = apiBase.replace(/\/$/, "");
+            const res = await fetch(`${base}/api/run`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt }),
+              body: JSON.stringify({ prompt: payload }),
             });
             if (!res.ok) {
-              const payload = await res.json().catch(() => ({}));
-              throw new Error(payload.detail || `Request failed (${res.status})`);
+              const detail = await res.json().catch(() => ({}));
+              throw new Error(detail.detail || `Backend responded with ${res.status}`);
             }
             const data = await res.json();
             setLogs(data.logs ?? []);
             setExitCode(data.exitCode ?? null);
+            const assistantText = (data.response && data.response.trim()) || "No structured response captured. Check the logs.";
+            setMessages([...draftHistory, { role: "assistant", content: assistantText }]);
           } catch (err) {
-            setError(err.message || "Something broke while calling the puppy backend.");
+            setError(err.message || "Unexpected error calling backend");
+            setMessages((prev) => prev.slice(0, -1));
           } finally {
             setLoading(false);
           }
+        }
+
+        function handleKey(event) {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+          }
+        }
+
+        function clearChat() {
+          setMessages(defaultMessages);
+          setLogs([]);
+          setExitCode(null);
+          setError("");
         }
 
         return (
@@ -182,71 +359,112 @@
             React.Fragment,
             null,
             React.createElement(
-              "label",
-              { style: { display: "block", marginBottom: "0.4rem", fontWeight: 600 } },
-              "API base URL"
-            ),
-            React.createElement("input", {
-              value: apiBase,
-              onChange: (e) => setApiBase(e.target.value),
-              style: {
-                width: "100%",
-                padding: "0.65rem 0.9rem",
-                borderRadius: "10px",
-                border: "1px solid rgba(255,255,255,0.09)",
-                background: "rgba(255,255,255,0.03)",
-                color: "inherit",
-                marginBottom: "0.9rem",
-              },
-            }),
-            React.createElement("div", { className: "api-hint" }, "Set this to wherever you deploy the FastAPI backend."),
-            React.createElement(
-              "label",
-              { style: { display: "block", margin: "1.2rem 0 0.4rem", fontWeight: 600 } },
-              "Your task"
-            ),
-            React.createElement("textarea", {
-              value: prompt,
-              onChange: (e) => setPrompt(e.target.value),
-              placeholder: "Refactor my server using SOLID principles...",
-            }),
-            React.createElement(
-              "button",
-              { onClick: runTask, disabled: loading },
-              loading ? "Working..." : "Run with Code Puppy"
-            ),
-            React.createElement(
-              "div",
-              { className: "status-bar" },
+              "header",
+              null,
               React.createElement(
-                "span",
+                "div",
                 null,
-                loading ? "🚧 Pup is hacking..." : "✅ Idle"
+                React.createElement("h1", null, "Code Puppy", React.createElement("span", null, "Chat")),
+                React.createElement("p", null, "Selectable models, a persistent chat log, and full transparency into every log line your puppy agent emits.")
               ),
-              exitCode !== null && React.createElement(
-                "span",
-                null,
-                `Last exit code: ${exitCode}`
-              )
-            ),
-            error && React.createElement(
-              "div",
-              { className: "error-banner" },
-              error
+              React.createElement("div", { className: "badge" }, "https://code-puppy-api.fly.dev")
             ),
             React.createElement(
-              "div",
-              { className: "logs-pane" },
-              logs.length === 0
-                ? React.createElement("p", { style: { color: "#9ca3af" } }, "No output yet. Ask the puppy something!")
-                : logs.map((entry, idx) => React.createElement(LogLine, { entry, key: idx }))
+              "main",
+              { className: "layout" },
+              React.createElement(
+                "section",
+                { className: "panel chat-window" },
+                React.createElement("div", { className: "messages" }, React.createElement(MessageList, { messages })),
+                React.createElement(
+                  "div",
+                  { className: "composer" },
+                  React.createElement("textarea", {
+                    placeholder: "Shift+Enter for newline. Enter to send.",
+                    value: composer,
+                    onChange: (e) => setComposer(e.target.value),
+                    onKeyDown: handleKey,
+                    disabled: loading,
+                  }),
+                  React.createElement(
+                    "div",
+                    { className: "actions" },
+                    React.createElement(
+                      "button",
+                      { className: "primary", onClick: sendMessage, disabled: loading },
+                      loading ? "Working..." : "Send to Code Puppy"
+                    ),
+                    React.createElement(
+                      "button",
+                      { className: "secondary", onClick: clearChat, disabled: loading },
+                      "Clear chat"
+                    )
+                  )
+                ),
+                error && React.createElement("div", { className: "error-banner" }, error)
+              ),
+              React.createElement(
+                "aside",
+                { className: "panel settings-grid" },
+                React.createElement(
+                  "div",
+                  null,
+                  React.createElement("p", { className: "section-title" }, "Model preset"),
+                  React.createElement("label", { htmlFor: "model-select" }, "Pick how Code Puppy thinks today"),
+                  React.createElement(
+                    "select",
+                    {
+                      id: "model-select",
+                      value: presetId,
+                      onChange: (e) => setPresetId(e.target.value),
+                    },
+                    MODEL_PRESETS.map((option) =>
+                      React.createElement(
+                        "option",
+                        { key: option.id, value: option.id },
+                        `${option.label} — ${option.hint}`
+                      )
+                    )
+                  ),
+                  React.createElement("textarea", {
+                    className: "system-input",
+                    spellCheck: "false",
+                    value: systemPrompt,
+                    onChange: (e) => setSystemPrompt(e.target.value),
+                  })
+                ),
+                React.createElement(
+                  "div",
+                  null,
+                  React.createElement("p", { className: "section-title" }, "Backend endpoint"),
+                  React.createElement("label", { htmlFor: "api-base" }, "FastAPI base URL"),
+                  React.createElement("input", {
+                    id: "api-base",
+                    type: "url",
+                    value: apiBase,
+                    onChange: (e) => setApiBase(e.target.value),
+                    placeholder: "https://code-puppy-api.fly.dev",
+                  }),
+                  React.createElement("p", { className: "status-line" }, "Point this at any deployment running /api/run.")
+                ),
+                React.createElement(
+                  "div",
+                  null,
+                  React.createElement("p", { className: "section-title" }, "Worker logs"),
+                  React.createElement("div", { className: "log-pane" }, React.createElement(LogPane, { logs })),
+                  React.createElement(
+                    "p",
+                    { className: "status-line" },
+                    exitCode === null ? "Idle — awaiting your next prompt." : `Last exit code: ${exitCode}`
+                  )
+                )
+              )
             )
           )
         );
       }
 
-      const root = createRoot(document.getElementById("root"));
-      root.render(React.createElement(App));
+      createRoot(document.getElementById("app-root")).render(React.createElement(App));
     </script>
   </body>
 </html>

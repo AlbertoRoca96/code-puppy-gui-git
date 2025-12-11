@@ -88,12 +88,13 @@ Deploy this anywhere FastAPI is supported. Remember to provision the `SYN_API_KE
 GitHub Pages serves `docs/` directly → <https://albertoroca96.github.io/code-puppy-gui-git/>. The single-file React UI pulls React 18 from ESM and speaks to the backend over HTTPS.
 
 Features:
-- Prompt textarea
-- Adjustable API base URL (default is `https://code-puppy-api.fly.dev`)
-- Fancy log stream + exit code badge
-- Error banner when the HTTP call blows up
+- Chat-style conversation history with Shift+Enter support.
+- Model presets (Claude via SYN, GPT-4o, Groq Llama) plus editable system prompt per session.
+- Adjustable API base URL (defaults to `https://code-puppy-api.fly.dev`).
+- Full worker log stream + exit code badge so you can debug the backend run.
+- Root-level `index.html` that redirects to `/docs/` so GitHub Pages works whether it’s configured for `/` or `/docs`.
 
-You can still override the API endpoint at runtime by editing the input field or by setting `window.CODE_PUPPY_API_BASE` before the script runs.
+You can still override the API endpoint at runtime by editing the input field or by setting `window.CODE_PUPPY_API_BASE` before the script runs. If Pages ever shows the README instead of the app, double-check **Settings → Pages** is set to deploy from **main** (either `/` or `/docs` — both now funnel to the chat UI).
 
 ### Optional: customize the landing page
 

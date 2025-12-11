@@ -1,5 +1,10 @@
 # Code Puppy GUI (Web + Desktop)
 
+Live deployment targets:
+
+- **Frontend:** <https://albertoroca96.github.io/code-puppy-gui-git/>
+- **Backend (after Fly deploy):** <https://code-puppy-api.fly.dev>
+
 This repo now has **three** pieces that work together:
 
 | Folder | Purpose |

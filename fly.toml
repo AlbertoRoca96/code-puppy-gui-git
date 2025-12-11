@@ -3,6 +3,7 @@ primary_region = "iad"
 
 [build]
   dockerfile = "backend/Dockerfile"
+  context = "."
 
 [env]
   PORT = "8080"

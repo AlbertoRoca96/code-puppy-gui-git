@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code Puppy GUI</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "JetBrains Mono", "Segoe UI", system-ui, sans-serif;
+        background: radial-gradient(circle at top, #10152b, #06070d);
+        color: #f5f5f5;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        padding: 2rem 1rem 4rem;
+      }
+      .app-shell {
+        width: min(1100px, 100%);
+        background: rgba(5, 9, 25, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        padding: 2rem;
+        box-shadow: 0 25px 80px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(2rem, 4vw, 3rem);
+      }
+      .tagline {
+        margin: 0 0 2rem;
+        font-size: 1.1rem;
+        color: #d5d9ff;
+      }
+      textarea {
+        width: 100%;
+        min-height: 140px;
+        padding: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        color: inherit;
+        font-size: 1rem;
+        resize: vertical;
+      }
+      button {
+        background: linear-gradient(120deg, #f72585, #7209b7);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        padding: 0.85rem 1.8rem;
+        border-radius: 999px;
+        cursor: pointer;
+        margin-top: 1rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      button:not(:disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(247, 37, 133, 0.35);
+      }
+      .status-bar {
+        margin-top: 1.5rem;
+        font-size: 0.95rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: center;
+      }
+      .logs-pane {
+        margin-top: 1.5rem;
+        background: rgba(0, 0, 0, 0.45);
+        border-radius: 12px;
+        padding: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        max-height: 380px;
+        overflow: auto;
+      }
+      .log-line {
+        font-size: 0.95rem;
+        margin-bottom: 0.7rem;
+        line-height: 1.35;
+        border-left: 3px solid transparent;
+        padding-left: 0.8rem;
+      }
+      .log-line[data-type="agent_response"] {
+        border-color: #4ade80;
+        color: #d1f7c4;
+      }
+      .log-line[data-type="error"] {
+        border-color: #f87171;
+        color: #fecaca;
+      }
+      .log-line:last-child { margin-bottom: 0; }
+      .error-banner {
+        background: rgba(248, 113, 113, 0.15);
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        color: #ffe4e6;
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+        margin-top: 1rem;
+      }
+      .api-hint {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #9ca3af;
+      }
+      @media (max-width: 600px) {
+        .app-shell { padding: 1.25rem; }
+        button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <h1>Code Puppy<span style="color:#f72585">.</span></h1>
+      <p class="tagline">A sassier, sharper coding agent right in your browser.</p>
+      <div id="root"></div>
+    </div>
+
+    <script type="module">
+      import React, { useState } from "https://esm.sh/react@18.2.0";
+      import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+
+      const defaultApiBase = window.CODE_PUPPY_API_BASE || "http://localhost:8000";
+
+      function LogLine({ entry }) {
+        const time = new Date().toLocaleTimeString();
+        return (
+          React.createElement(
+            "div",
+            { className: "log-line", "data-type": entry.event },
+            `[${time}] ${entry.event}: ${entry.content ?? ""}`
+          )
+        );
+      }
+
+      function App() {
+        const [prompt, setPrompt] = useState("Explain why Code Puppy beats every IDE.");
+        const [apiBase, setApiBase] = useState(defaultApiBase);
+        const [logs, setLogs] = useState([]);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+        const [exitCode, setExitCode] = useState(null);
+
+        async function runTask() {
+          if (!prompt.trim()) {
+            setError("Give the puppy a task first!");
+            return;
+          }
+          setError("");
+          setExitCode(null);
+          setLoading(true);
+          setLogs([]);
+
+          try {
+            const res = await fetch(`${apiBase}/api/run`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt }),
+            });
+            if (!res.ok) {
+              const payload = await res.json().catch(() => ({}));
+              throw new Error(payload.detail || `Request failed (${res.status})`);
+            }
+            const data = await res.json();
+            setLogs(data.logs ?? []);
+            setExitCode(data.exitCode ?? null);
+          } catch (err) {
+            setError(err.message || "Something broke while calling the puppy backend.");
+          } finally {
+            setLoading(false);
+          }
+        }
+
+        return (
+          React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(
+              "label",
+              { style: { display: "block", marginBottom: "0.4rem", fontWeight: 600 } },
+              "API base URL"
+            ),
+            React.createElement("input", {
+              value: apiBase,
+              onChange: (e) => setApiBase(e.target.value),
+              style: {
+                width: "100%",
+                padding: "0.65rem 0.9rem",
+                borderRadius: "10px",
+                border: "1px solid rgba(255,255,255,0.09)",
+                background: "rgba(255,255,255,0.03)",
+                color: "inherit",
+                marginBottom: "0.9rem",
+              },
+            }),
+            React.createElement("div", { className: "api-hint" }, "Set this to wherever you deploy the FastAPI backend."),
+            React.createElement(
+              "label",
+              { style: { display: "block", margin: "1.2rem 0 0.4rem", fontWeight: 600 } },
+              "Your task"
+            ),
+            React.createElement("textarea", {
+              value: prompt,
+              onChange: (e) => setPrompt(e.target.value),
+              placeholder: "Refactor my server using SOLID principles...",
+            }),
+            React.createElement(
+              "button",
+              { onClick: runTask, disabled: loading },
+              loading ? "Working..." : "Run with Code Puppy"
+            ),
+            React.createElement(
+              "div",
+              { className: "status-bar" },
+              React.createElement(
+                "span",
+                null,
+                loading ? "🚧 Pup is hacking..." : "✅ Idle"
+              ),
+              exitCode !== null && React.createElement(
+                "span",
+                null,
+                `Last exit code: ${exitCode}`
+              )
+            ),
+            error && React.createElement(
+              "div",
+              { className: "error-banner" },
+              error
+            ),
+            React.createElement(
+              "div",
+              { className: "logs-pane" },
+              logs.length === 0
+                ? React.createElement("p", { style: { color: "#9ca3af" } }, "No output yet. Ask the puppy something!")
+                : logs.map((entry, idx) => React.createElement(LogLine, { entry, key: idx }))
+            )
+          )
+        );
+      }
+
+      const root = createRoot(document.getElementById("root"));
+      root.render(React.createElement(App));
+    </script>
+  </body>
+</html>

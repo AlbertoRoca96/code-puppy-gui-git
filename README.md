@@ -8,7 +8,7 @@ This repo now has **three** pieces that work together:
 | `backend/` | FastAPI service that shells into the worker and exposes it over HTTPS. |
 | `docs/` | Static React single-page app (served by GitHub Pages) that talks to the backend. |
 
-The idea: deploy the backend somewhere cheap (Render, Railway, Fly.io, etc.), expose it over HTTPS, then point the GitHub Pages UI at that endpoint. Boom – a Code Puppy that runs in the browser.
+The idea: deploy the backend once (we picked **Fly.io**), expose it over HTTPS, then point the GitHub Pages UI at that endpoint. Boom – a Code Puppy that runs in the browser without your laptop being online.
 
 ---
 
@@ -33,25 +33,39 @@ It prints newline-delimited JSON so both the Tk UI **and** the FastAPI backend c
 
 ## 2. Backend (FastAPI)
 
-### Install deps
+### Local dev
 
 ```bash
 cd backend
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt -e ..  # installs code_puppy_gui from parent
-```
-
-### Environment variables
-
-- `SYN_API_KEY` – optional key you provided (`syn_4dacf751fbae3e83d51a0fb9682379cc`). Export it before launching so downstream tools can use it.
-- `PYTHONIOENCODING` is forced to UTF-8 automatically.
-
-### Run locally
-
-```bash
+pip install -r requirements.txt -e ..
 uvicorn backend.app:app --reload --port 8000
 ```
+
+Set `SYN_API_KEY=syn_4dacf751fbae3e83d51a0fb9682379cc` (or whatever providers you use) before running so the worker has it.
+
+### Production (Fly.io)
+
+We ship a full container build + GitHub Actions pipeline:
+
+| File | Purpose |
+| --- | --- |
+| `backend/Dockerfile` | Builds the FastAPI app + worker. |
+| `fly.toml` | Fly app config (`code-puppy-api`). |
+| `.github/workflows/deploy-backend.yml` | CI/CD pipeline. |
+
+**How to enable it:**
+
+1. Install the [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/), run `fly launch --copy-config --no-deploy` if you want to rename the app.
+2. In GitHub repo settings → *Secrets and variables → Actions*, add:
+   - `FLY_API_TOKEN` – personal access token from `fly auth token`.
+   - `SYN_API_KEY` – the key you provided above.
+3. Push to `main`. The workflow will:
+   - run a quick smoke test,
+   - push the container,
+   - set `SYN_API_KEY` on Fly,
+   - and deploy to `https://code-puppy-api.fly.dev` (or whatever app name you picked).
 
 Endpoints:
 
@@ -66,20 +80,15 @@ Deploy this anywhere FastAPI is supported. Remember to provision the `SYN_API_KE
 
 ## 3. Frontend (React via GitHub Pages)
 
-The Pages configuration points to `/docs`, so whatever lives there is instantly deployed at:
+GitHub Pages serves `docs/` directly → <https://albertoroca96.github.io/code-puppy-gui-git/>. The single-file React UI pulls React 18 from ESM and speaks to the backend over HTTPS.
 
-```
-https://albertoroca96.github.io/code-puppy-gui-git/
-```
-
-`docs/index.html` is a single-file React app loaded via ESM imports. No build step required. Features:
-
+Features:
 - Prompt textarea
-- Adjustable API base URL (defaults to `http://localhost:8000` for local dev)
-- Live log feed + exit code display
-- Error banner with human-friendly feedback
+- Adjustable API base URL (default is `https://code-puppy-api.fly.dev`)
+- Fancy log stream + exit code badge
+- Error banner when the HTTP call blows up
 
-To point it at your hosted backend, set `window.CODE_PUPPY_API_BASE` before the script runs, or just type the URL into the UI field.
+You can still override the API endpoint at runtime by editing the input field or by setting `window.CODE_PUPPY_API_BASE` before the script runs.
 
 ### Optional: customize the landing page
 
@@ -90,9 +99,11 @@ To point it at your hosted backend, set `window.CODE_PUPPY_API_BASE` before the 
 
 ## Deployment checklist
 
-1. **Backend** – deploy `backend/app.py` (with `SYN_API_KEY` secret).
-2. **Frontend** – push changes to `docs/index.html` (Pages redeploys automatically).
-3. **Desktop** (optional) – keep shipping `code-puppy-gui` via `pip install -e .` if you still want the Tk UI.
+1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=syn_4dacf751fbae3e83d51a0fb9682379cc` (or let the GitHub Action do it).
+2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY`.
+3. **Push to `main`:** the workflow builds + deploys automatically.
+4. **Frontend auto-publishes** from `/docs` via GitHub Pages.
+5. **Desktop app** still works through `pip install -e . && code-puppy-gui` if you want a native feel.
 
 That’s it. You now have:
 

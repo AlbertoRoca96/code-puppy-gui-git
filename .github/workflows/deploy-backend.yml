@@ -48,10 +48,21 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY }}
         run: |
-          if [ -n "$SYN_API_KEY" ]; then
-            flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach
-          else
+          if [ -z "$SYN_API_KEY" ]; then
             echo "SYN_API_KEY is empty. Skipping flyctl secrets set."
+            exit 0
+          fi
+
+          if flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach; then
+            echo "SYN_API_KEY synced to $FLY_APP_NAME."
+          else
+            echo "flyctl couldn't find $FLY_APP_NAME yet. Attempting to create it now..."
+            if flyctl apps create "$FLY_APP_NAME"; then
+              flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach
+            else
+              echo "::error::Unable to create Fly app $FLY_APP_NAME. Update fly.toml (app value) to a unique name or create the app manually, then rerun."
+              exit 1
+            fi
           fi
 
       - name: Deploy via Fly.io

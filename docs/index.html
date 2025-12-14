@@ -141,6 +141,41 @@
         padding: 0.55rem 1.2rem;
         font-size: 0.85rem;
       }
+      .session-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        max-height: 320px;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+      }
+      .session-item {
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 16, 27, 0.6);
+        padding: 0.65rem 0.9rem;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        transition: border-color 0.2s ease, background 0.2s ease;
+      }
+      .session-item:hover {
+        border-color: rgba(244, 114, 182, 0.4);
+      }
+      .session-item.active {
+        border-color: rgba(244, 114, 182, 0.8);
+        background: rgba(244, 114, 182, 0.08);
+      }
+      .session-item-title {
+        font-weight: 600;
+        font-size: 0.92rem;
+        color: #f8fafc;
+      }
+      .session-item-meta {
+        font-size: 0.78rem;
+        color: #94a3b8;
+      }
       button:disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -266,7 +301,9 @@
       const defaultApiBase = window.CODE_PUPPY_API_BASE || "https://code-puppy-api.fly.dev";
       const SESSION_STORAGE_KEY = "code-puppy-chat-session-v1";
       const SESSION_ID_STORAGE_KEY = "code-puppy-chat-session-id";
+      const ACTIVE_SESSION_KEY = "code-puppy-active-session";
       const MAX_SAVED_MESSAGES = 120;
+      const SESSION_LIST_LIMIT = 25;
 
       const hasWindow = () => typeof window !== "undefined";
 
@@ -303,6 +340,53 @@
           .filter((msg) => msg && typeof msg.role === "string" && typeof msg.content === "string")
           .slice(-MAX_SAVED_MESSAGES)
           .map((msg) => ({ role: msg.role, content: msg.content }));
+      }
+
+      function deriveTitle(messages = []) {
+        for (const msg of messages) {
+          if (msg?.role === "user") {
+            const text = (msg.content || "").trim();
+            if (text) {
+              return text.slice(0, 70);
+            }
+          }
+        }
+        return "New chat";
+      }
+
+      function persistLocalSnapshot(storage, snapshot) {
+        if (!storage || !snapshot) return;
+        try {
+          storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+        } catch (err) {
+          console.warn("Failed to persist snapshot locally", err);
+        }
+      }
+
+      function loadLocalSnapshot(storage, targetSessionId) {
+        if (!storage) return null;
+        try {
+          const raw = storage.getItem(SESSION_STORAGE_KEY);
+          if (!raw) return null;
+          const saved = JSON.parse(raw);
+          if (saved.sessionId && saved.sessionId === targetSessionId) {
+            return saved;
+          }
+        } catch (err) {
+          console.warn("Failed to read snapshot locally", err);
+        }
+        return null;
+      }
+
+      function formatTimestamp(ts) {
+        if (!ts) {
+          return "Unknown";
+        }
+        try {
+          return new Date(ts).toLocaleString();
+        } catch {
+          return "Unknown";
+        }
       }
 
       const MessageList = ({ messages }) => (
@@ -347,6 +431,8 @@
         const [autosaveError, setAutosaveError] = useState("");
         const [remoteRestoreAttempted, setRemoteRestoreAttempted] = useState(false);
         const [hasLocalHistory, setHasLocalHistory] = useState(false);
+        const [sessionList, setSessionList] = useState([]);
+        const [sessionsLoading, setSessionsLoading] = useState(false);
         const storageRef = useRef(null);
 
         const preset = useMemo(() => MODEL_PRESETS.find((p) => p.id === presetId) || MODEL_PRESETS[0], [presetId]);
@@ -359,6 +445,7 @@
             presetId,
             systemPrompt,
             apiBase,
+            title: deriveTitle(messages),
             updatedAt: Date.now(),
           };
         }
@@ -389,14 +476,15 @@
           }
         }
 
-        async function restoreFromServer(force = false) {
-          if (!sessionId) {
+        async function restoreFromServer({ force = false, targetId } = {}) {
+          const activeId = targetId || sessionId;
+          if (!activeId) {
             return;
           }
           const base = normalizeBase(apiBase || defaultApiBase);
           setAutosaveStatus("syncing");
           try {
-            const res = await fetch(`${base}/api/session/${sessionId}`, { cache: "no-store" });
+            const res = await fetch(`${base}/api/session/${activeId}`, { cache: "no-store" });
             if (res.status === 404) {
               if (force) {
                 setAutosaveStatus("remote-missing");
@@ -408,6 +496,9 @@
               throw new Error(`Failed to load remote session (${res.status})`);
             }
             const snapshot = await res.json();
+            if (activeId !== sessionId) {
+              return;
+            }
             applySnapshot(snapshot, { allowEmptyMessages: true });
             setAutosaveStatus("restored");
             setAutosaveError("");
@@ -418,8 +509,85 @@
               setAutosaveError(err.message || "Remote restore failed");
             }
           } finally {
-            setRemoteRestoreAttempted(true);
+            if (activeId === sessionId) {
+              setRemoteRestoreAttempted(true);
+            }
           }
+        }
+
+        async function refreshSessions() {
+          const base = normalizeBase(apiBase || defaultApiBase);
+          if (!base) {
+            return;
+          }
+          setSessionsLoading(true);
+          try {
+            const res = await fetch(`${base}/api/sessions?limit=${SESSION_LIST_LIMIT}`, {
+              cache: "no-store",
+            });
+            if (!res.ok) {
+              throw new Error(`Failed to load sessions (${res.status})`);
+            }
+            const data = await res.json();
+            let sessions = Array.isArray(data.sessions) ? data.sessions : [];
+            if (
+              sessionId &&
+              !sessions.some((entry) => entry.sessionId === sessionId)
+            ) {
+              sessions = [
+                {
+                  sessionId,
+                  title: deriveTitle(messages),
+                  updatedAt: Date.now(),
+                  messageCount: messages.length,
+                },
+                ...sessions,
+              ];
+            }
+            setSessionList(sessions);
+          } catch (err) {
+            console.warn("Failed to fetch sessions", err);
+          } finally {
+            setSessionsLoading(false);
+          }
+        }
+
+        function resetChatState() {
+          setMessages(defaultMessages);
+          setComposer("");
+          setDiagnostics([]);
+          setUsage(null);
+          setError("");
+          setHasLocalHistory(false);
+        }
+
+        function handleSessionSelect(nextId) {
+          if (!nextId || nextId === sessionId) {
+            return;
+          }
+          const snapshot = createSnapshot();
+          persistLocalSnapshot(storageRef.current, snapshot);
+          resetChatState();
+          setRemoteRestoreAttempted(false);
+          setSessionId(nextId);
+        }
+
+        function startNewSession() {
+          persistLocalSnapshot(storageRef.current, createSnapshot());
+          const nextId = generateSessionId();
+          resetChatState();
+          setRemoteRestoreAttempted(false);
+          setSessionId(nextId);
+          setSessionList((prev) => {
+            const existing = prev.filter((entry) => entry.sessionId !== nextId);
+            const optimistic = {
+              sessionId: nextId,
+              title: "New chat",
+              updatedAt: Date.now(),
+              messageCount: 0,
+            };
+            return [optimistic, ...existing];
+          });
         }
 
         const autosaveStatusLabel = useMemo(() => {
@@ -452,44 +620,18 @@
           const storage = getSafeStorage();
           storageRef.current = storage;
 
-          let cachedSessionId = storage?.getItem(SESSION_ID_STORAGE_KEY) || "";
+          let cachedSessionId =
+            storage?.getItem(ACTIVE_SESSION_KEY) || storage?.getItem(SESSION_ID_STORAGE_KEY) || "";
           if (!cachedSessionId) {
             cachedSessionId = generateSessionId();
             if (storage) {
+              storage.setItem(ACTIVE_SESSION_KEY, cachedSessionId);
               storage.setItem(SESSION_ID_STORAGE_KEY, cachedSessionId);
             }
           }
           setSessionId(cachedSessionId);
 
-          if (storage) {
-            try {
-              const raw = storage.getItem(SESSION_STORAGE_KEY);
-              if (raw) {
-                const saved = JSON.parse(raw);
-                const cleaned = sanitizeMessages(saved.messages);
-                if (cleaned.length) {
-                  setMessages(cleaned);
-                  if (cleaned.length > defaultMessages.length) {
-                    setHasLocalHistory(true);
-                  }
-                }
-                if (typeof saved.composer === "string") {
-                  setComposer(saved.composer);
-                }
-                if (typeof saved.presetId === "string") {
-                  setPresetId(saved.presetId);
-                }
-                if (typeof saved.systemPrompt === "string") {
-                  setSystemPrompt(saved.systemPrompt);
-                }
-                if (typeof saved.apiBase === "string" && saved.apiBase.trim()) {
-                  setApiBase(saved.apiBase);
-                }
-              }
-            } catch (err) {
-              console.warn("Code Puppy failed to load the saved chat session.", err);
-            }
-          } else {
+          if (!storage) {
             setAutosaveStatus("storage-disabled");
             setAutosaveError("Local storage is unavailable; falling back to remote autosave only.");
           }
@@ -497,10 +639,50 @@
         }, []);
 
         useEffect(() => {
-          if (messages.length > defaultMessages.length) {
-            setHasLocalHistory(true);
+          if (!sessionId) {
+            return;
           }
+          const storage = storageRef.current;
+          if (!storage) {
+            return;
+          }
+          try {
+            storage.setItem(ACTIVE_SESSION_KEY, sessionId);
+            storage.setItem(SESSION_ID_STORAGE_KEY, sessionId);
+          } catch (err) {
+            console.warn("Failed to persist active session id", err);
+          }
+        }, [sessionId]);
+
+        useEffect(() => {
+          if (!sessionId || !initialized) {
+            return;
+          }
+          const storage = storageRef.current;
+          if (!storage) {
+            return;
+          }
+          const saved = loadLocalSnapshot(storage, sessionId);
+          if (saved) {
+            applySnapshot(saved, { allowEmptyMessages: true });
+          } else {
+            resetChatState();
+          }
+        }, [sessionId, initialized]);
+
+        useEffect(() => {
+          setHasLocalHistory(messages.length > defaultMessages.length);
         }, [messages]);
+
+        useEffect(() => {
+          refreshSessions();
+        }, [apiBase]);
+
+        useEffect(() => {
+          if (sessionId) {
+            refreshSessions();
+          }
+        }, [sessionId]);
 
         useEffect(() => {
           if (!initialized) {
@@ -512,7 +694,7 @@
           }
           try {
             const snapshot = createSnapshot();
-            storage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+            persistLocalSnapshot(storage, snapshot);
             setAutosaveStatus("saved-local");
             setAutosaveError("");
           } catch (err) {
@@ -546,6 +728,7 @@
                 }
                 setAutosaveStatus("saved-remote");
                 setAutosaveError("");
+                refreshSessions();
               })
               .catch((err) => {
                 if (controller.signal.aborted) {
@@ -566,7 +749,7 @@
           if (!sessionId || hasLocalHistory || remoteRestoreAttempted) {
             return;
           }
-          restoreFromServer();
+          restoreFromServer({ targetId: sessionId });
         }, [sessionId, apiBase, hasLocalHistory, remoteRestoreAttempted]);
 
         async function sendMessage() {
@@ -634,11 +817,8 @@
         }
 
         function clearChat() {
-          setMessages(defaultMessages);
-          setComposer("");
-          setDiagnostics([]);
-          setUsage(null);
-          setError("");
+          resetChatState();
+          setRemoteRestoreAttempted(false);
         }
 
         return (
@@ -693,6 +873,48 @@
               React.createElement(
                 "aside",
                 { className: "panel settings-grid" },
+                React.createElement(
+                  "div",
+                  null,
+                  React.createElement("p", { className: "section-title" }, "Chats"),
+                  React.createElement(
+                    "div",
+                    { className: "actions" },
+                    React.createElement(
+                      "button",
+                      { className: "secondary", onClick: startNewSession, disabled: loading },
+                      "New chat"
+                    )
+                  ),
+                  sessionsLoading
+                    ? React.createElement("p", { className: "status-line" }, "Loading sessions…")
+                    : sessionList.length === 0
+                      ? React.createElement("p", { className: "status-line" }, "No saved chats yet. Start one!")
+                      : React.createElement(
+                          "div",
+                          { className: "session-list" },
+                          sessionList.map((entry) =>
+                            React.createElement(
+                              "div",
+                              {
+                                key: entry.sessionId,
+                                className: `session-item${entry.sessionId === sessionId ? " active" : ""}`,
+                                onClick: () => handleSessionSelect(entry.sessionId),
+                              },
+                              React.createElement(
+                                "span",
+                                { className: "session-item-title" },
+                                entry.title || "New chat"
+                              ),
+                              React.createElement(
+                                "span",
+                                { className: "session-item-meta" },
+                                `${entry.messageCount ?? 0} msgs • ${formatTimestamp(entry.updatedAt)}`
+                              )
+                            )
+                          )
+                        )
+                ),
                 React.createElement(
                   "div",
                   null,
@@ -754,7 +976,7 @@
                     {
                       type: "button",
                       className: "tertiary",
-                      onClick: () => restoreFromServer(true),
+                      onClick: () => restoreFromServer({ force: true }),
                       disabled: loading || !sessionId,
                     },
                     "Restore remote autosave"

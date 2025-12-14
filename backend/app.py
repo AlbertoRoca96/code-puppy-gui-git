@@ -131,6 +131,18 @@ def _sanitize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return cleaned
 
 
+def _derive_title(payload: Dict[str, Any]) -> str:
+    title = str(payload.get("title") or "").strip()
+    if title:
+        return title[:120]
+    for message in payload.get("messages") or []:
+        if message.get("role") == "user":
+            content = (message.get("content") or "").strip()
+            if content:
+                return content[:120]
+    return "New chat"
+
+
 async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
     api_key = os.environ.get("SYN_API_KEY")
     if not api_key:
@@ -261,9 +273,35 @@ async def load_session(session_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="Session not found")
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            data = json.load(fh)
     except json.JSONDecodeError as exc:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail="Session file is corrupted") from exc
+    data.setdefault("sessionId", session_id)
+    data.setdefault("title", _derive_title(data))
+    return data
+
+
+@app.get("/api/sessions")
+async def list_sessions(limit: int = 25) -> Dict[str, Any]:
+    max_items = max(1, min(limit, 100))
+    entries: List[Dict[str, Any]] = []
+    files = sorted(_SESSION_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for path in files[:max_items]:
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):  # pragma: no cover - defensive
+            continue
+        updated_at = data.get("updatedAt") or path.stat().st_mtime
+        entries.append(
+            {
+                "sessionId": data.get("sessionId") or path.stem,
+                "title": data.get("title") or _derive_title(data),
+                "updatedAt": updated_at,
+                "messageCount": len(data.get("messages") or []),
+            }
+        )
+    return {"sessions": entries}
 
 
 @app.put("/api/session/{session_id}")
@@ -273,6 +311,7 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
     payload["sessionId"] = session_id
     payload["updatedAt"] = snapshot.updatedAt or time.time()
     payload["messages"] = _sanitize_messages(payload.get("messages") or [])
+    payload["title"] = _derive_title(payload)
 
     tmp_path = path.with_suffix(".tmp")
     tmp_path.parent.mkdir(parents=True, exist_ok=True)

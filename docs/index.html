@@ -18,6 +18,8 @@
         background: radial-gradient(circle at top, #151726, #05060b 60%);
         color: #f8fafc;
         padding: clamp(1rem, 3vw, 2.5rem);
+        overflow-y: scroll;
+        scrollbar-gutter: stable both-edges;
       }
       header {
         max-width: 1200px;
@@ -95,13 +97,14 @@
       }
       textarea {
         width: 100%;
-        min-height: 130px;
+        min-height: 170px;
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(15, 17, 32, 0.85);
         color: inherit;
         padding: 1rem;
         font-size: 1rem;
+        line-height: 1.5;
         resize: vertical;
       }
       .composer {
@@ -254,6 +257,7 @@
       ];
 
       const defaultApiBase = window.CODE_PUPPY_API_BASE || "https://code-puppy-api.fly.dev";
+      const SESSION_STORAGE_KEY = "code-puppy-chat-session-v1";
 
       const MessageList = ({ messages }) => (
         React.createElement(
@@ -291,12 +295,65 @@
         const [usage, setUsage] = useState(null);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState("");
+        const [initialized, setInitialized] = useState(false);
 
         const preset = useMemo(() => MODEL_PRESETS.find((p) => p.id === presetId) || MODEL_PRESETS[0], [presetId]);
 
         useEffect(() => {
-          setSystemPrompt(preset.instructions);
-        }, [preset.id]);
+          if (typeof window === "undefined" || !window.localStorage) {
+            setInitialized(true);
+            return;
+          }
+          try {
+            const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+            if (!raw) {
+              return;
+            }
+            const saved = JSON.parse(raw);
+            if (Array.isArray(saved.messages)) {
+              const cleaned = saved.messages
+                .filter((msg) => msg && typeof msg.role === "string" && typeof msg.content === "string")
+                .map((msg) => ({ role: msg.role, content: msg.content }));
+              if (cleaned.length) {
+                setMessages(cleaned);
+              }
+            }
+            if (typeof saved.composer === "string") {
+              setComposer(saved.composer);
+            }
+            if (typeof saved.presetId === "string") {
+              setPresetId(saved.presetId);
+            }
+            if (typeof saved.systemPrompt === "string") {
+              setSystemPrompt(saved.systemPrompt);
+            }
+            if (typeof saved.apiBase === "string" && saved.apiBase.trim()) {
+              setApiBase(saved.apiBase);
+            }
+          } catch (err) {
+            console.warn("Code Puppy failed to load the saved chat session.", err);
+          } finally {
+            setInitialized(true);
+          }
+        }, []);
+
+        useEffect(() => {
+          if (!initialized || typeof window === "undefined" || !window.localStorage) {
+            return;
+          }
+          try {
+            const snapshot = {
+              messages,
+              composer,
+              presetId,
+              systemPrompt,
+              apiBase,
+            };
+            window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(snapshot));
+          } catch (err) {
+            console.warn("Code Puppy failed to persist the chat session.", err);
+          }
+        }, [initialized, messages, composer, presetId, systemPrompt, apiBase]);
 
         async function sendMessage() {
           const content = composer.trim();
@@ -347,14 +404,24 @@
         }
 
         function handleKey(event) {
-          if (event.key === "Enter" && !event.shiftKey) {
+          const isEnter = event.key === "Enter";
+          const hasModifier = event.metaKey || event.ctrlKey;
+          if (isEnter && hasModifier) {
             event.preventDefault();
             sendMessage();
           }
         }
 
+        function handlePresetChange(event) {
+          const nextId = event.target.value;
+          setPresetId(nextId);
+          const nextPreset = MODEL_PRESETS.find((option) => option.id === nextId) || MODEL_PRESETS[0];
+          setSystemPrompt(nextPreset.instructions);
+        }
+
         function clearChat() {
           setMessages(defaultMessages);
+          setComposer("");
           setDiagnostics([]);
           setUsage(null);
           setError("");
@@ -386,7 +453,7 @@
                   "div",
                   { className: "composer" },
                   React.createElement("textarea", {
-                    placeholder: "Shift+Enter for newline. Enter to send.",
+                    placeholder: "Enter for newline. Ctrl/Cmd+Enter to send (or use the button).",
                     value: composer,
                     onChange: (e) => setComposer(e.target.value),
                     onKeyDown: handleKey,
@@ -422,7 +489,7 @@
                     {
                       id: "model-select",
                       value: presetId,
-                      onChange: (e) => setPresetId(e.target.value),
+                      onChange: handlePresetChange,
                       disabled: loading,
                     },
                     MODEL_PRESETS.map((option) =>

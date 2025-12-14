@@ -5,8 +5,10 @@ import asyncio
 import configparser
 import json
 import os
+import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -34,6 +36,26 @@ class ChatRequest(BaseModel):
     systemPrompt: str | None = None
     model: str | None = None
     temperature: float | None = None
+
+
+class SessionSnapshot(BaseModel):
+    messages: List[Dict[str, str]] = []
+    composer: str | None = ""
+    presetId: str | None = None
+    systemPrompt: str | None = None
+    apiBase: str | None = None
+    updatedAt: float | None = None
+
+    class Config:
+        extra = "allow"
+
+
+_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_SESSION_DIR = Path(
+    os.environ.get("CODE_PUPPY_SESSION_DIR")
+    or Path(tempfile.gettempdir()) / "code_puppy_sessions"
+)
+_SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 _WORKER_ENV_READY = False
@@ -88,6 +110,25 @@ def _format_event(line: str) -> Dict[str, Any]:
     event = payload.get("event", "log")
     content = payload.get("content") or payload.get("message") or ""
     return {"event": event, "content": content, **{k: v for k, v in payload.items() if k not in {"event", "content"}}}
+
+
+def _session_file(session_id: str) -> Path:
+    if not _SESSION_ID_PATTERN.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    return _SESSION_DIR / f"{session_id}.json"
+
+
+def _sanitize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    cleaned: List[Dict[str, str]] = []
+    if not messages:
+        return cleaned
+    for item in messages[-200:]:
+        role = item.get("role")
+        content = item.get("content")
+        if not role or content is None:
+            continue
+        cleaned.append({"role": str(role)[:32], "content": str(content)})
+    return cleaned
 
 
 async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
@@ -211,6 +252,34 @@ async def _run_worker(prompt: str) -> Dict[str, Any]:
         "response": response_text,
         "stderr": stderr_output,
     }
+
+
+@app.get("/api/session/{session_id}")
+async def load_session(session_id: str) -> Dict[str, Any]:
+    path = _session_file(session_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+        raise HTTPException(status_code=500, detail="Session file is corrupted") from exc
+
+
+@app.put("/api/session/{session_id}")
+async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, Any]:
+    path = _session_file(session_id)
+    payload = snapshot.model_dump()
+    payload["sessionId"] = session_id
+    payload["updatedAt"] = snapshot.updatedAt or time.time()
+    payload["messages"] = _sanitize_messages(payload.get("messages") or [])
+
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
+    with tmp_path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    tmp_path.replace(path)
+    return {"status": "saved", "updatedAt": payload["updatedAt"]}
 
 
 @app.get("/api/health")

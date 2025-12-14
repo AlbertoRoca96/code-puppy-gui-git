@@ -303,7 +303,7 @@
       const SESSION_ID_STORAGE_KEY = "code-puppy-chat-session-id";
       const ACTIVE_SESSION_KEY = "code-puppy-active-session";
       const MAX_SAVED_MESSAGES = 120;
-      const SESSION_LIST_LIMIT = 25;
+      const SESSION_LIST_LIMIT = 50;
 
       const hasWindow = () => typeof window !== "undefined";
 
@@ -450,6 +450,28 @@
           };
         }
 
+        async function persistRemoteSnapshot(targetSessionId, snapshot) {
+          if (!targetSessionId || !snapshot) {
+            return;
+          }
+          const base = normalizeBase(apiBase || defaultApiBase);
+          if (!base) {
+            return;
+          }
+          try {
+            const res = await fetch(`${base}/api/session/${targetSessionId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(snapshot),
+            });
+            if (!res.ok) {
+              throw new Error(`Failed to persist session ${targetSessionId}`);
+            }
+          } catch (err) {
+            console.warn("Unable to persist remote snapshot", err);
+          }
+        }
+
         function applySnapshot(snapshot, options = {}) {
           if (!snapshot || typeof snapshot !== "object") {
             return;
@@ -561,19 +583,26 @@
           setHasLocalHistory(false);
         }
 
-        function handleSessionSelect(nextId) {
+        async function handleSessionSelect(nextId) {
           if (!nextId || nextId === sessionId) {
             return;
           }
           const snapshot = createSnapshot();
           persistLocalSnapshot(storageRef.current, snapshot);
+          if (sessionId) {
+            await persistRemoteSnapshot(sessionId, snapshot);
+          }
           resetChatState();
           setRemoteRestoreAttempted(false);
           setSessionId(nextId);
         }
 
-        function startNewSession() {
-          persistLocalSnapshot(storageRef.current, createSnapshot());
+        async function startNewSession() {
+          const snapshot = createSnapshot();
+          persistLocalSnapshot(storageRef.current, snapshot);
+          if (sessionId) {
+            await persistRemoteSnapshot(sessionId, snapshot);
+          }
           const nextId = generateSessionId();
           resetChatState();
           setRemoteRestoreAttempted(false);

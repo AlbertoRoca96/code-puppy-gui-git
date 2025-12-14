@@ -282,7 +282,7 @@ async def load_session(session_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/sessions")
-async def list_sessions(limit: int = 25) -> Dict[str, Any]:
+async def list_sessions(limit: int = 50) -> Dict[str, Any]:
     max_items = max(1, min(limit, 100))
     entries: List[Dict[str, Any]] = []
     files = sorted(_SESSION_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)

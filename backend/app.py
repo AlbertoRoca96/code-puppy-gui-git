@@ -6,6 +6,7 @@ import configparser
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -51,11 +52,69 @@ class SessionSnapshot(BaseModel):
 
 
 _SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-_SESSION_DIR = Path(
-    os.environ.get("CODE_PUPPY_SESSION_DIR")
-    or Path(tempfile.gettempdir()) / "code_puppy_sessions"
-)
-_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _legacy_session_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "code_puppy_sessions"
+
+
+def _resolve_session_dir() -> Path:
+    override = os.environ.get("CODE_PUPPY_SESSION_DIR")
+    if override:
+        path = Path(override)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    candidates: list[Path] = []
+
+    if sys.platform.startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            candidates.append(Path(local_app_data) / "CodePuppy" / "sessions")
+
+    xdg_state = os.environ.get("XDG_STATE_HOME")
+    if xdg_state:
+        candidates.append(Path(xdg_state) / "code_puppy" / "sessions")
+
+    home = Path.home()
+    if str(home):
+        candidates.append(home / ".code_puppy" / "sessions")
+
+    candidates.append(_legacy_session_dir())
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            continue
+
+    fallback = _legacy_session_dir()
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+def _migrate_legacy_sessions(target_dir: Path) -> None:
+    legacy_dir = _legacy_session_dir()
+    if not legacy_dir.exists():
+        return
+    try:
+        if legacy_dir.resolve() == target_dir.resolve():
+            return
+    except OSError:
+        pass
+    for source in legacy_dir.glob("*.json"):
+        destination = target_dir / source.name
+        if destination.exists():
+            continue
+        try:
+            shutil.copy2(source, destination)
+        except OSError:
+            continue
+
+
+_SESSION_DIR = _resolve_session_dir()
+_migrate_legacy_sessions(_SESSION_DIR)
 
 
 _WORKER_ENV_READY = False
@@ -144,17 +203,29 @@ def _derive_title(payload: Dict[str, Any]) -> str:
 
 
 async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
-    api_key = os.environ.get("SYN_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="SYN_API_KEY is not configured")
-
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages cannot be empty")
 
-    model = payload.model or os.environ.get("CODE_PUPPY_CHAT_MODEL", "claude-4-5-sonnet")
-    base_url = os.environ.get(
-        "SYN_CHAT_URL", "https://api.synthetic.new/openai/v1/chat/completions"
+    model = payload.model or os.environ.get(
+        "CODE_PUPPY_CHAT_MODEL", "hf:zai-org/GLM-4.7"
     )
+
+    is_openai = model.startswith("openai:")
+    if is_openai:
+        api_key = os.environ.get("OPEN_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=503, detail="OPEN_API_KEY is not configured")
+        model = model.replace("openai:", "", 1)
+        base_url = os.environ.get(
+            "OPENAI_CHAT_URL", "https://api.openai.com/v1/chat/completions"
+        )
+    else:
+        api_key = os.environ.get("SYN_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=503, detail="SYN_API_KEY is not configured")
+        base_url = os.environ.get(
+            "SYN_CHAT_URL", "https://api.synthetic.new/openai/v1/chat/completions"
+        )
 
     chat_messages: List[Dict[str, str]] = []
     if payload.systemPrompt:

@@ -65,7 +65,8 @@ We ship a full container build + GitHub Actions pipeline:
 1. Install the [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/), run `fly launch --copy-config --no-deploy` if you want to rename the app.
 2. In GitHub repo settings → *Secrets and variables → Actions*, add:
    - `FLY_API_TOKEN` – personal access token from `fly auth token`.
-   - `SYN_API_KEY` – the key you provided above.
+   - `SYN_API_KEY` – Synthetic key for `hf:*` models.
+   - `OPEN_API_KEY` – OpenAI key if you want to use `openai:*` models.
 3. Push to `main`. The workflow will:
    - run a quick smoke test,
    - push the container,
@@ -75,10 +76,16 @@ We ship a full container build + GitHub Actions pipeline:
 Endpoints:
 
 - `GET /api/health` → `{ "status": "ok" }`
-- `POST /api/chat` → proxies to Synthetic’s OpenAI-compatible endpoint so the web UI can do low-latency chat completions (requires `SYN_API_KEY`).
+- `POST /api/chat` → proxies to Synthetic for `hf:*` models (requires `SYN_API_KEY`) or OpenAI for `openai:*` models (requires `OPEN_API_KEY`).
 - `POST /api/run` → `{ exitCode, logs, response, stderr }` for the legacy worker shell-out.
 
-Each `api/run` call spawns `python -m code_puppy_gui.worker`, while `api/chat` simply relays to the SYN-hosted model of your choice. Deploy this anywhere FastAPI is supported. Remember to provision the `SYN_API_KEY` (or any other provider keys) as secrets on the host.
+### Session persistence
+
+- Session snapshots now live under `~/.code_puppy/sessions` (or `%LOCALAPPDATA%\CodePuppy\sessions` on Windows) so they survive browser + OS restarts.
+- Override the location with `CODE_PUPPY_SESSION_DIR=/some/other/path` if you mount a Fly volume or want to stash them elsewhere.
+- On first boot we automatically copy any legacy `/tmp/code_puppy_sessions` files into the new directory so you don’t lose yesterday’s chats.
+
+Each `api/run` call spawns `python -m code_puppy_gui.worker`, while `api/chat` simply relays to the SYN-hosted model of your choice. Deploy this anywhere FastAPI is supported. Remember to provision `SYN_API_KEY` and/or `OPEN_API_KEY` as secrets on the host.
 
 ---
 
@@ -104,8 +111,8 @@ You can still override the API endpoint at runtime by editing the input field or
 
 ## Deployment checklist
 
-1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=syn_4dacf751fbae3e83d51a0fb9682379cc` (or let the GitHub Action do it).
-2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY`.
+1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=... OPEN_API_KEY=...` (or let the GitHub Action do it).
+2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY` (+ `OPEN_API_KEY` if using OpenAI models).
 3. **Push to `main`:** the workflow builds + deploys automatically.
 4. **Frontend auto-publishes** from `/docs` via GitHub Pages.
 5. **Desktop app** still works through `pip install -e . && code-puppy-gui` if you want a native feel.

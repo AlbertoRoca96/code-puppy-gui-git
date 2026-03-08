@@ -68,6 +68,9 @@ We ship a full container build + GitHub Actions pipeline:
    - `FLY_API_TOKEN` – personal access token from `fly auth token`.
    - `SYN_API_KEY` – Synthetic key for `hf:*` models.
    - `OPEN_API_KEY` – OpenAI key if you want to use `openai:*` models.
+   - `SUPABASE_URL` – your project URL, e.g. `https://your-project.supabase.co`.
+   - `SUPABASE_SERVICE_ROLE_KEY` – **service role key** from Supabase Project Settings → API (do **not** use the publishable/anon key for backend storage writes).
+   - `SUPABASE_STORAGE_BUCKET` – the bucket name you create for Code Puppy uploads, e.g. `code-puppy-uploads`.
 3. Push to `main`. The workflow will:
    - run a quick smoke test,
    - push the container,
@@ -112,8 +115,8 @@ You can still override the API endpoint at runtime by editing the input field or
 
 ## Deployment checklist
 
-1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=... OPEN_API_KEY=...` (or let the GitHub Action do it).
-2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY` (+ `OPEN_API_KEY` if using OpenAI models). **Also add `EXPO_TOKEN`** for mobile builds.
+1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=... OPEN_API_KEY=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SUPABASE_STORAGE_BUCKET=...` (or let the GitHub Action do it).
+2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY` (+ `OPEN_API_KEY` if using OpenAI models) + `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + `SUPABASE_STORAGE_BUCKET`. **Also add `EXPO_TOKEN`** for mobile builds.
 3. **Push to `main`:** the workflow builds + deploys automatically.
 4. **Frontend auto-publishes** from `/docs` via GitHub Pages.
 5. **Mobile app** builds automatically via GitHub Actions when you push to `main`.
@@ -210,6 +213,10 @@ You can configure a different endpoint in the mobile Settings screen or by setti
 ```
 
 All three frontends share the same backend for consistent behavior!
+
+### Supabase storage note
+
+If you want durable multi-device attachments, create a Supabase Storage bucket (for example `code-puppy-uploads`) and keep it **private**. The backend should use the `SUPABASE_SERVICE_ROLE_KEY` to upload/read files server-side. Do **not** commit Supabase keys into the repo, and do **not** use the publishable key for privileged backend storage operations.
 
 ### See Also
 

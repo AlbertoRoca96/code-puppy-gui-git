@@ -47,18 +47,40 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           SYN_API_KEY: ${{ secrets.SYN_API_KEY }}
+          OPEN_API_KEY: ${{ secrets.OPEN_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
         run: |
-          if [ -z "$SYN_API_KEY" ]; then
-            echo "SYN_API_KEY is empty. Skipping flyctl secrets set."
+          SECRET_ARGS=""
+
+          if [ -n "$SYN_API_KEY" ]; then
+            SECRET_ARGS="$SECRET_ARGS SYN_API_KEY=$SYN_API_KEY"
+          fi
+          if [ -n "$OPEN_API_KEY" ]; then
+            SECRET_ARGS="$SECRET_ARGS OPEN_API_KEY=$OPEN_API_KEY"
+          fi
+          if [ -n "$SUPABASE_URL" ]; then
+            SECRET_ARGS="$SECRET_ARGS SUPABASE_URL=$SUPABASE_URL"
+          fi
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            SECRET_ARGS="$SECRET_ARGS SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY"
+          fi
+          if [ -n "$SUPABASE_STORAGE_BUCKET" ]; then
+            SECRET_ARGS="$SECRET_ARGS SUPABASE_STORAGE_BUCKET=$SUPABASE_STORAGE_BUCKET"
+          fi
+
+          if [ -z "$SECRET_ARGS" ]; then
+            echo "No deploy secrets provided. Skipping flyctl secrets set."
             exit 0
           fi
 
-          if flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach; then
-            echo "SYN_API_KEY synced to $FLY_APP_NAME."
+          if flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach; then
+            echo "Secrets synced to $FLY_APP_NAME."
           else
             echo "flyctl couldn't find $FLY_APP_NAME yet. Attempting to create it now..."
             if flyctl apps create "$FLY_APP_NAME"; then
-              flyctl secrets set SYN_API_KEY="$SYN_API_KEY" --app "$FLY_APP_NAME" --detach
+              flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach
             else
               echo "::error::Unable to create Fly app $FLY_APP_NAME. Update fly.toml (app value) to a unique name or create the app manually, then rerun."
               exit 1

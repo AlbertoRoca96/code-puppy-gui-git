@@ -82,6 +82,12 @@ _MAX_CSV_PREVIEW_ROWS = 12
 _MAX_CSV_PREVIEW_COLS = 8
 _MAX_DOCX_PARAGRAPHS = 80
 _MAX_IMAGE_OCR_CHARS = 6000
+_SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+_SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+_SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "")
+_SUPABASE_ENABLED = bool(
+    _SUPABASE_URL and _SUPABASE_SERVICE_ROLE_KEY and _SUPABASE_STORAGE_BUCKET
+)
 
 
 class RunRequest(BaseModel):
@@ -282,6 +288,33 @@ def _upload_metadata_file(upload_id: str) -> Path:
     return _UPLOAD_DIR / f"{safe_id}.json"
 
 
+def _supabase_object_key(upload_id: str, filename: str) -> str:
+    safe_id = _sanitize_upload_id(upload_id)
+    safe_name = _sanitize_filename(filename)
+    return f"uploads/{safe_id}/{safe_name}"
+
+
+def _supabase_metadata_key(upload_id: str) -> str:
+    safe_id = _sanitize_upload_id(upload_id)
+    return f"uploads/{safe_id}/metadata.json"
+
+
+def _supabase_storage_url(object_key: str) -> str:
+    return (
+        f"{_SUPABASE_URL}/storage/v1/object/{_SUPABASE_STORAGE_BUCKET}/{object_key}"
+    )
+
+
+def _supabase_headers(content_type: str | None = None) -> Dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {_SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": _SUPABASE_SERVICE_ROLE_KEY,
+    }
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+
 def _upload_binary_prefix(upload_id: str) -> str:
     safe_id = _sanitize_upload_id(upload_id)
     return f"{safe_id}_"
@@ -302,10 +335,75 @@ def _base_public_url() -> str:
 
 
 def _build_upload_url(upload_id: str, filename: str) -> str:
+    if _SUPABASE_ENABLED:
+        return _supabase_storage_url(_supabase_object_key(upload_id, filename))
     base = _base_public_url()
     safe_name = _sanitize_filename(filename)
     path = f"/uploads/{upload_id}_{safe_name}"
     return f"{base}{path}" if base else path
+
+
+async def _supabase_upload_bytes(
+    object_key: str,
+    content: bytes,
+    content_type: str,
+) -> None:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        response = await client.post(
+            _supabase_storage_url(object_key),
+            headers={
+                **_supabase_headers(content_type),
+                "x-upsert": "true",
+            },
+            content=content,
+        )
+        response.raise_for_status()
+
+
+async def _supabase_download_bytes(object_key: str) -> bytes:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        response = await client.get(
+            _supabase_storage_url(object_key),
+            headers=_supabase_headers(),
+        )
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        response.raise_for_status()
+        return response.content
+
+
+async def _load_upload_metadata_async(upload_id: str) -> Dict[str, Any]:
+    if _SUPABASE_ENABLED:
+        try:
+            payload = await _supabase_download_bytes(_supabase_metadata_key(upload_id))
+        except HTTPException:
+            raise
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase metadata fetch failed: {exc}") from exc
+        try:
+            return json.loads(payload.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail="Upload metadata is corrupted") from exc
+    return _load_upload_metadata(upload_id)
+
+
+async def _download_attachment_to_temp_file(metadata: Dict[str, Any]) -> Path | None:
+    object_key = metadata.get("storageObjectKey")
+    if not object_key:
+        return None
+    try:
+        payload = await _supabase_download_bytes(str(object_key))
+    except HTTPException:
+        return None
+    except httpx.HTTPError:
+        return None
+
+    suffix = Path(str(metadata.get("name") or "upload.bin")).suffix or ".bin"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(payload)
+    tmp.flush()
+    tmp.close()
+    return Path(tmp.name)
 
 
 def _sanitize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -480,7 +578,7 @@ def _load_upload_metadata(upload_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Upload metadata is corrupted") from exc
 
 
-def _resolve_attachment_records(attachments: List[AttachmentRef] | None) -> List[Dict[str, Any]]:
+def _resolve_attachment_records_sync(attachments: List[AttachmentRef] | None) -> List[Dict[str, Any]]:
     if not attachments:
         return []
 
@@ -490,6 +588,38 @@ def _resolve_attachment_records(attachments: List[AttachmentRef] | None) -> List
             continue
         metadata = _load_upload_metadata(item.uploadId)
         binary_path = _find_upload_binary_file(item.uploadId)
+        extracted_text = (
+            _extract_attachment_text(binary_path, metadata.get("mimeType"))
+            if binary_path
+            else None
+        )
+        records.append(
+            {
+                "item": item,
+                "metadata": metadata,
+                "binary_path": binary_path,
+                "extracted_text": extracted_text,
+                "is_image": _is_image_file(
+                    binary_path or Path(metadata.get("name") or "upload.bin"),
+                    metadata.get("mimeType"),
+                ),
+            }
+        )
+    return records
+
+
+async def _resolve_attachment_records(attachments: List[AttachmentRef] | None) -> List[Dict[str, Any]]:
+    if not attachments:
+        return []
+    if not _SUPABASE_ENABLED:
+        return _resolve_attachment_records_sync(attachments)
+
+    records: List[Dict[str, Any]] = []
+    for item in attachments:
+        if not item.uploadId:
+            continue
+        metadata = await _load_upload_metadata_async(item.uploadId)
+        binary_path = await _download_attachment_to_temp_file(metadata)
         extracted_text = (
             _extract_attachment_text(binary_path, metadata.get("mimeType"))
             if binary_path
@@ -628,7 +758,7 @@ async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
             "SYN_CHAT_URL", "https://api.synthetic.new/openai/v1/chat/completions"
         )
 
-    attachment_records = _resolve_attachment_records(payload.attachments)
+    attachment_records = await _resolve_attachment_records(payload.attachments)
     attachment_context = _build_attachment_context_from_records(attachment_records)
 
     chat_messages: List[Dict[str, Any]] = []
@@ -769,17 +899,8 @@ async def upload_attachment(
 ) -> Dict[str, Any]:
     upload_id = uuid.uuid4().hex
     filename = _sanitize_filename(file.filename)
-    target_file = _upload_binary_file(upload_id, filename)
-    metadata_file = _upload_metadata_file(upload_id)
-
-    size = 0
-    with target_file.open("wb") as fh:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            fh.write(chunk)
+    content = await file.read()
+    size = len(content)
 
     metadata = {
         "uploadId": upload_id,
@@ -790,8 +911,32 @@ async def upload_attachment(
         "url": _build_upload_url(upload_id, filename),
         "createdAt": time.time(),
     }
-    with metadata_file.open("w", encoding="utf-8") as fh:
-        json.dump(metadata, fh, ensure_ascii=False)
+
+    if _SUPABASE_ENABLED:
+        object_key = _supabase_object_key(upload_id, filename)
+        metadata_key = _supabase_metadata_key(upload_id)
+        metadata["storageObjectKey"] = object_key
+        metadata["storageMetadataKey"] = metadata_key
+        try:
+            await _supabase_upload_bytes(
+                object_key,
+                content,
+                file.content_type or "application/octet-stream",
+            )
+            await _supabase_upload_bytes(
+                metadata_key,
+                json.dumps(metadata, ensure_ascii=False).encode("utf-8"),
+                "application/json",
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase upload failed: {exc}") from exc
+    else:
+        target_file = _upload_binary_file(upload_id, filename)
+        metadata_file = _upload_metadata_file(upload_id)
+        with target_file.open("wb") as fh:
+            fh.write(content)
+        with metadata_file.open("w", encoding="utf-8") as fh:
+            json.dump(metadata, fh, ensure_ascii=False)
 
     await file.close()
     return metadata
@@ -799,7 +944,7 @@ async def upload_attachment(
 
 @app.get("/api/upload/{upload_id}")
 async def get_upload(upload_id: str) -> Dict[str, Any]:
-    return _load_upload_metadata(upload_id)
+    return await _load_upload_metadata_async(upload_id)
 
 
 @app.get("/api/session/{session_id}")

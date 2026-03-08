@@ -7,6 +7,7 @@ primary_region = "iad"
 
 [env]
   PORT = "8080"
+  CODE_PUPPY_PUBLIC_BASE_URL = "https://code-puppy-api.fly.dev"
 
 [[services]]
   http_checks = []

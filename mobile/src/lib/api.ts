@@ -19,21 +19,31 @@ export async function apiCall(
   });
 
   if (!response.ok) {
-    throw new Error(`API error: ${response.status} ${response.statusText}`);
+    throw new Error(`API error: ${response.status}`);
   }
 
   return response.json();
 }
 
-export async function sendMessage(prompt: string): Promise<{
-  response: string;
-  content?: string;
+export interface ChatResponse {
+  message: string;
+  raw?: any;
   usage?: any;
-}> {
+  model?: string;
+}
+
+export async function sendMessage(prompt: string): Promise<ChatResponse> {
   try {
-    const response = await apiCall('/api/chat', {
+    const response: ChatResponse = await apiCall('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message: prompt }),
+      body: JSON.stringify({
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      }),
     });
     return response;
   } catch (error) {

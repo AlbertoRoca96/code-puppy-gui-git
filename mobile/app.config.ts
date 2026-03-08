@@ -3,9 +3,9 @@ import type { ConfigContext, ExpoConfig } from "@expo/config";
 export default ({ config }: ConfigContext): ExpoConfig => {
   return {
     ...config,
-    name: "Code Puppy",
+    name: "Puppy Chat",
     slug: "code-puppy-mobile",
-    owner: "AlbertoRoca96",
+    owner: "al96",
     icon: "./assets/icon.png",
     splash: {
       image: "./assets/icon.png",
@@ -37,7 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ],
     extra: {
       eas: {
-        projectId: "get-from-eas-init",
+        projectId: "e02a6075-5fc5-4238-8fe0-6b9c19ade4f0",
       },
       apiBase: "https://code-puppy-api.fly.dev",
     },

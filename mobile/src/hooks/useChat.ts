@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { sendMessage as apiSendMessage } from '../lib/api';
+import { sendMessage as apiSendMessage, ChatResponse } from '../lib/api';
 
 export interface Message {
   id: string;
@@ -24,22 +24,23 @@ export function UseChat() {
     setIsLoading(true);
 
     try {
-      const response = await apiSendMessage(prompt);
+      const response: ChatResponse = await apiSendMessage(prompt);
       
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.response || response.content || 'No response',
+        content: response.message || 'No response',
         timestamp: new Date(),
       };
       
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (error) {
       console.error('Error sending message:', error);
+      const msg = error instanceof Error ? error.message : String(error);
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error: ${error}`,
+        content: `Error: ${msg}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMsg]);

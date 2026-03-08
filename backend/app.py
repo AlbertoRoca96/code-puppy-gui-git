@@ -88,6 +88,7 @@ _SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "")
 _SUPABASE_ENABLED = bool(
     _SUPABASE_URL and _SUPABASE_SERVICE_ROLE_KEY and _SUPABASE_STORAGE_BUCKET
 )
+_SUPABASE_DB_ENABLED = bool(_SUPABASE_URL and _SUPABASE_SERVICE_ROLE_KEY)
 
 
 class RunRequest(BaseModel):
@@ -404,6 +405,107 @@ async def _download_attachment_to_temp_file(metadata: Dict[str, Any]) -> Path | 
     tmp.flush()
     tmp.close()
     return Path(tmp.name)
+
+
+async def _supabase_db_request(
+    method: str,
+    path: str,
+    *,
+    params: Dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    prefer: str | None = None,
+) -> Any:
+    if not _SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=503, detail="Supabase DB is not configured")
+    headers = {
+        **_supabase_headers("application/json"),
+        "Accept": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+        response = await client.request(
+            method,
+            f"{_SUPABASE_URL}/rest/v1/{path.lstrip('/')}",
+            headers=headers,
+            params=params,
+            json=json_body,
+        )
+        if response.status_code >= 400:
+            detail = response.text or response.reason_phrase
+            raise HTTPException(status_code=response.status_code, detail=detail)
+        if not response.text:
+            return None
+        return response.json()
+
+
+async def _load_supabase_session(session_id: str) -> Dict[str, Any]:
+    rows = await _supabase_db_request(
+        "GET",
+        "/chat_sessions",
+        params={"session_id": f"eq.{session_id}", "select": "payload"},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Session not found")
+    payload = rows[0].get("payload") or {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Session payload is corrupted")
+    return payload
+
+
+async def _save_supabase_session(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    now = payload.get("updatedAt") or time.time()
+    title = payload.get("title") or _derive_title(payload)
+    message_count = len(payload.get("messages") or [])
+    body = {
+        "session_id": session_id,
+        "title": title,
+        "updated_at": now,
+        "message_count": message_count,
+        "payload": payload,
+    }
+    rows = await _supabase_db_request(
+        "POST",
+        "/chat_sessions",
+        json_body=body,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    saved = rows[0] if rows else body
+    return {
+        "status": "saved",
+        "updatedAt": saved.get("updated_at") or now,
+    }
+
+
+async def _list_supabase_sessions(limit: int) -> List[Dict[str, Any]]:
+    rows = await _supabase_db_request(
+        "GET",
+        "/chat_sessions",
+        params={
+            "select": "session_id,title,updated_at,message_count",
+            "order": "updated_at.desc",
+            "limit": str(limit),
+        },
+    )
+    return [
+        {
+            "sessionId": row.get("session_id"),
+            "title": row.get("title") or "New chat",
+            "updatedAt": row.get("updated_at") or time.time(),
+            "messageCount": row.get("message_count") or 0,
+        }
+        for row in rows or []
+    ]
+
+
+async def _delete_supabase_session(session_id: str) -> Dict[str, Any]:
+    await _supabase_db_request(
+        "DELETE",
+        "/chat_sessions",
+        params={"session_id": f"eq.{session_id}"},
+        prefer="return=representation",
+    )
+    return {"status": "deleted", "sessionId": session_id}
 
 
 def _sanitize_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -949,14 +1051,18 @@ async def get_upload(upload_id: str) -> Dict[str, Any]:
 
 @app.get("/api/session/{session_id}")
 async def load_session(session_id: str) -> Dict[str, Any]:
-    path = _session_file(session_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Session not found")
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="Session file is corrupted") from exc
+    _session_file(session_id)
+    if _SUPABASE_DB_ENABLED:
+        data = await _load_supabase_session(session_id)
+    else:
+        path = _session_file(session_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Session not found")
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=500, detail="Session file is corrupted") from exc
     data.setdefault("sessionId", session_id)
     data.setdefault("title", _derive_title(data))
     data["attachments"] = _sanitize_attachments(data.get("attachments") or [])
@@ -966,6 +1072,9 @@ async def load_session(session_id: str) -> Dict[str, Any]:
 @app.get("/api/sessions")
 async def list_sessions(limit: int = 50) -> Dict[str, Any]:
     max_items = max(1, min(limit, 100))
+    if _SUPABASE_DB_ENABLED:
+        return {"sessions": await _list_supabase_sessions(max_items)}
+
     entries: List[Dict[str, Any]] = []
     files = sorted(_SESSION_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     for path in files[:max_items]:
@@ -988,7 +1097,7 @@ async def list_sessions(limit: int = 50) -> Dict[str, Any]:
 
 @app.put("/api/session/{session_id}")
 async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, Any]:
-    path = _session_file(session_id)
+    _session_file(session_id)
     payload = snapshot.model_dump()
     payload["sessionId"] = session_id
     payload["updatedAt"] = snapshot.updatedAt or time.time()
@@ -996,6 +1105,10 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
     payload["attachments"] = _sanitize_attachments(payload.get("attachments") or [])
     payload["title"] = _derive_title(payload)
 
+    if _SUPABASE_DB_ENABLED:
+        return await _save_supabase_session(session_id, payload)
+
+    path = _session_file(session_id)
     tmp_path = path.with_suffix(".tmp")
     tmp_path.parent.mkdir(parents=True, exist_ok=True)
     with tmp_path.open("w", encoding="utf-8") as fh:
@@ -1006,6 +1119,10 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
 
 @app.delete("/api/session/{session_id}")
 async def delete_session(session_id: str) -> Dict[str, Any]:
+    _session_file(session_id)
+    if _SUPABASE_DB_ENABLED:
+        return await _delete_supabase_session(session_id)
+
     path = _session_file(session_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Session not found")

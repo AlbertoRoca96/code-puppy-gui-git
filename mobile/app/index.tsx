@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,8 @@ import {
   Platform,
   ScrollView,
   Keyboard,
-  Pressable,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -89,6 +90,7 @@ export default function ChatScreen() {
   const [checking, setChecking] = useState(false);
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -178,15 +180,38 @@ export default function ChatScreen() {
     router.push('/debug-storage' as any);
   };
 
+  const scrollToBottom = () => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    });
+  };
+
+  const handleMessagesContentSizeChange = () => {
+    scrollToBottom();
+  };
+
+  const handleMessagesLayout = () => {
+    scrollToBottom();
+  };
+
+  const handleMessagesScrollBeginDrag = (
+    _event: NativeSyntheticEvent<NativeScrollEvent>
+  ) => {
+    Keyboard.dismiss();
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length, attachments.length, headerCollapsed]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Pressable style={styles.container} onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={88}
-        >
-          <View style={styles.headerWrapper}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={88}
+      >
+        <View style={styles.headerWrapper}>
           <View style={styles.headerTopRow}>
             <TouchableOpacity
               style={styles.headerPill}
@@ -349,11 +374,17 @@ export default function ChatScreen() {
 
         <View style={styles.chatWrapper}>
           <ScrollView
+            ref={scrollViewRef}
             style={styles.messages}
             contentContainerStyle={
-              messages.length === 0 ? styles.emptyContainer : undefined
+              messages.length === 0 ? styles.emptyContainer : styles.messagesContent
             }
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onContentSizeChange={handleMessagesContentSizeChange}
+            onLayout={handleMessagesLayout}
+            onScrollBeginDrag={handleMessagesScrollBeginDrag}
+            scrollEventThrottle={16}
           >
             {messages.length === 0 ? (
               <Text style={styles.emptyText}>
@@ -373,6 +404,7 @@ export default function ChatScreen() {
                   ]}
                 >
                   <Text
+                    selectable
                     style={
                       msg.role === 'user'
                         ? styles.userText
@@ -447,8 +479,7 @@ export default function ChatScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-        </KeyboardAvoidingView>
-      </Pressable>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -651,6 +682,9 @@ const styles = StyleSheet.create({
   },
   messages: {
     flex: 1,
+  },
+  messagesContent: {
+    paddingBottom: 20,
   },
   emptyContainer: {
     flexGrow: 1,

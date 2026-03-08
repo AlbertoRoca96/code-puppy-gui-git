@@ -17,8 +17,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { UseChat } from '../src/hooks/useChat';
-import { getHealth } from '../src/lib/api';
-import { loadStoredSession, signOut } from '../src/lib/auth';
+import { getCurrentUser, getHealth } from '../src/lib/api';
+import { getCurrentSessionUser, loadStoredSession, signOut } from '../src/lib/auth';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';
@@ -89,6 +89,7 @@ export default function ChatScreen() {
   const [statusText, setStatusText] = useState(
     'Woof! Tap "Check backend" to verify connectivity.'
   );
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
@@ -96,9 +97,22 @@ export default function ChatScreen() {
 
   useEffect(() => {
     loadStoredSession()
-      .then((session) => {
+      .then(async (session) => {
         if (!session?.access_token) {
           router.replace('/auth' as any);
+          return;
+        }
+        const localUser = await getCurrentSessionUser();
+        if (localUser?.email) {
+          setCurrentUserEmail(localUser.email);
+        }
+        try {
+          const remoteUser = await getCurrentUser();
+          if (remoteUser.email) {
+            setCurrentUserEmail(remoteUser.email);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch current user', error);
         }
       })
       .finally(() => setAuthChecked(true));
@@ -264,6 +278,9 @@ export default function ChatScreen() {
                   <Text style={styles.subtitle}>
                     Selectable models, persistent sessions, and real file uploads.
                   </Text>
+                ) : null}
+                {currentUserEmail ? (
+                  <Text style={styles.subtitle}>Signed in as {currentUserEmail}</Text>
                 ) : null}
               </View>
               <TouchableOpacity

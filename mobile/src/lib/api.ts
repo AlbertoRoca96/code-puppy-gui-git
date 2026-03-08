@@ -1,6 +1,7 @@
 // Code Puppy API client for Puppy Chat mobile app
 
 import { getAccessToken, getValidAccessToken } from './auth';
+import { API_BASE } from './config';
 
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
@@ -30,10 +31,6 @@ export async function apiCall(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<any> {
-  const API_BASE = __DEV__
-    ? 'http://localhost:8000'
-    : 'https://code-puppy-api.fly.dev';
-
   const url = `${API_BASE}${endpoint}`;
 
   let response = await fetch(url, {
@@ -74,7 +71,7 @@ export async function apiCall(
 }
 
 function getApiBase(): string {
-  return __DEV__ ? 'http://localhost:8000' : 'https://code-puppy-api.fly.dev';
+  return API_BASE;
 }
 
 export interface ChatRequestInput {
@@ -103,6 +100,11 @@ export interface ChatResponse {
 
 export interface HealthStatus {
   status: string;
+}
+
+export interface CurrentUserResponse {
+  id: string;
+  email?: string | null;
 }
 
 export async function sendMessage({
@@ -196,5 +198,13 @@ export async function getHealth(): Promise<HealthStatus> {
   const raw = await apiCall('/api/health', { method: 'GET' });
   return {
     status: String(raw.status ?? ''),
+  };
+}
+
+export async function getCurrentUser(): Promise<CurrentUserResponse> {
+  const raw = await apiCall('/api/me', { method: 'GET' });
+  return {
+    id: String(raw.id ?? ''),
+    email: raw.email ?? null,
   };
 }

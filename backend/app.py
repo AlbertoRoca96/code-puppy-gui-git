@@ -1025,7 +1025,12 @@ async def run_code_puppy(req: RunRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatRequest) -> Dict[str, Any]:
+async def chat(
+    payload: ChatRequest,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
+    if _SUPABASE_DB_ENABLED:
+        await _get_current_user(authorization)
     return await _invoke_syn_chat(payload)
 
 
@@ -1197,6 +1202,17 @@ async def delete_session(
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {exc}") from exc
     return {"status": "deleted", "sessionId": session_id}
+
+
+@app.get("/api/me")
+async def me(authorization: str | None = Header(default=None)) -> Dict[str, Any]:
+    if not _SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=503, detail="Supabase auth is not configured")
+    current_user = await _get_current_user(authorization)
+    return {
+        "id": str(current_user.get("id") or ""),
+        "email": current_user.get("email"),
+    }
 
 
 @app.get("/api/health")

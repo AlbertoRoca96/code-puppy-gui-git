@@ -1,7 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-const SUPABASE_URL = 'https://apalydgxzngsmzxgldlz.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_QLhy2Ilvvo8d2M3kQaEhYw_VhHVwJ8K';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './config';
 const AUTH_STORAGE_KEY = 'code_puppy_supabase_session';
 const EXPIRY_SKEW_SECONDS = 60;
 
@@ -157,4 +156,18 @@ export async function getValidAccessToken(forceRefresh = false): Promise<string 
 
 export async function getAccessToken(): Promise<string | null> {
   return getValidAccessToken(false);
+}
+
+export async function getCurrentSessionUser(): Promise<{
+  id: string;
+  email?: string;
+} | null> {
+  const session = await loadStoredSession();
+  if (session?.user?.id) {
+    return {
+      id: session.user.id,
+      email: session.user.email,
+    };
+  }
+  return null;
 }

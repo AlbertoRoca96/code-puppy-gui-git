@@ -39,7 +39,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       eas: {
         projectId: "e02a6075-5fc5-4238-8fe0-6b9c19ade4f0",
       },
-      apiBase: "https://code-puppy-api.fly.dev",
+      apiBase: process.env.EXPO_PUBLIC_API_BASE || "https://code-puppy-api.fly.dev",
+      supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL || "https://apalydgxzngsmzxgldlz.supabase.co",
+      supabasePublishableKey:
+        process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+        "sb_publishable_QLhy2Ilvvo8d2M3kQaEhYw_VhHVwJ8K",
     },
     web: {
       bundler: "metro",

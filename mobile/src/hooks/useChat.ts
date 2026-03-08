@@ -213,14 +213,16 @@ export function UseChat(options: UseChatOptions = {}) {
     };
   }, [initialized, isHydrating, isLoading, sessionId, messages, attachments, model, presetId, systemPrompt]);
 
-  const ensureUploadedAttachments = async (): Promise<SessionAttachment[]> => {
+  const ensureUploadedAttachments = async (
+    forceRefresh = false
+  ): Promise<SessionAttachment[]> => {
     const resolved = await Promise.all(
       attachments.map(async (attachment) => {
         const uriInfo = attachment.uri
           ? await normalizeDeviceFileUri(attachment.uri)
           : { normalizedUri: attachment.uri, notes: [] as string[] };
 
-        if (attachment.uploadId) {
+        if (attachment.uploadId && !forceRefresh) {
           try {
             await getUpload(attachment.uploadId);
             return {
@@ -295,15 +297,34 @@ export function UseChat(options: UseChatOptions = {}) {
     setFailureDebug(null);
 
     try {
-      const readyAttachments = await ensureUploadedAttachments();
+      let readyAttachments = await ensureUploadedAttachments();
       await persistState(messagesWithUser, '', readyAttachments);
-      const response: ChatResponse = await apiSendMessage({
-        messages: toSessionMessages(messagesWithUser),
-        model,
-        systemPrompt,
-        temperature: DEFAULT_TEMPERATURE,
-        attachments: toAttachmentReferences(readyAttachments),
-      });
+
+      let response: ChatResponse;
+      try {
+        response = await apiSendMessage({
+          messages: toSessionMessages(messagesWithUser),
+          model,
+          systemPrompt,
+          temperature: DEFAULT_TEMPERATURE,
+          attachments: toAttachmentReferences(readyAttachments),
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('Upload not found') && readyAttachments.length > 0) {
+          readyAttachments = await ensureUploadedAttachments(true);
+          await persistState(messagesWithUser, '', readyAttachments);
+          response = await apiSendMessage({
+            messages: toSessionMessages(messagesWithUser),
+            model,
+            systemPrompt,
+            temperature: DEFAULT_TEMPERATURE,
+            attachments: toAttachmentReferences(readyAttachments),
+          });
+        } else {
+          throw error;
+        }
+      }
 
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -314,7 +335,8 @@ export function UseChat(options: UseChatOptions = {}) {
 
       const finalMessages = [...messagesWithUser, assistantMsg];
       setMessages(finalMessages);
-      await persistState(finalMessages, '', readyAttachments);
+      setAttachments([]);
+      await persistState(finalMessages, '', []);
     } catch (error) {
       console.error('Error sending message:', error);
       const msg = error instanceof Error ? error.message : String(error);

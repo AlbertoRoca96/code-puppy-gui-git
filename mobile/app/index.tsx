@@ -137,6 +137,7 @@ export default function ChatScreen() {
       uploadId: null,
       url: null,
       size: asset.size ?? null,
+      status: 'pending',
     });
   };
 
@@ -164,6 +165,7 @@ export default function ChatScreen() {
       uploadId: null,
       url: null,
       size: asset.fileSize ?? null,
+      status: 'pending',
     });
   };
 
@@ -435,18 +437,30 @@ export default function ChatScreen() {
               showsHorizontalScrollIndicator={false}
               style={styles.chipsRow}
             >
-              {attachments.map((attachment) => (
-                <TouchableOpacity
-                  key={attachment.id}
-                  style={styles.attachmentChip}
-                  onPress={() => removeAttachment(attachment.id)}
-                >
-                  <Text style={styles.attachmentChipText}>
-                    {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name}{' '}
-                    {attachment.uploadId ? '✓' : '…'} ×
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {attachments.map((attachment) => {
+                const statusLabel =
+                  attachment.status === 'uploading'
+                    ? 'uploading…'
+                    : attachment.status === 'retrying'
+                    ? 'retrying…'
+                    : attachment.status === 'uploaded'
+                    ? 'sent'
+                    : attachment.status === 'error'
+                    ? 'failed'
+                    : 'queued';
+
+                return (
+                  <TouchableOpacity
+                    key={attachment.id}
+                    style={styles.attachmentChip}
+                    onPress={() => removeAttachment(attachment.id)}
+                  >
+                    <Text style={styles.attachmentChipText}>
+                      {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name} · {statusLabel} ×
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           )}
 

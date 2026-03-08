@@ -5,6 +5,13 @@ export interface SessionMessage {
   content: string;
 }
 
+export type AttachmentStatus =
+  | 'pending'
+  | 'uploading'
+  | 'retrying'
+  | 'uploaded'
+  | 'error';
+
 export interface SessionAttachment {
   id: string;
   name: string;
@@ -14,6 +21,7 @@ export interface SessionAttachment {
   uploadId?: string | null;
   url?: string | null;
   size?: number | null;
+  status?: AttachmentStatus;
 }
 
 export interface SessionSummary {

@@ -155,6 +155,17 @@ export function UseChat(options: UseChatOptions = {}) {
     };
   }, [options.initialSessionId]);
 
+  const updateAttachmentStatus = (
+    attachmentId: string,
+    status: SessionAttachment['status']
+  ) => {
+    setAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === attachmentId ? { ...attachment, status } : attachment
+      )
+    );
+  };
+
   const buildSnapshot = (
     nextMessages: Message[],
     nextComposer = '',
@@ -225,12 +236,15 @@ export function UseChat(options: UseChatOptions = {}) {
         if (attachment.uploadId && !forceRefresh) {
           try {
             await getUpload(attachment.uploadId);
+            updateAttachmentStatus(attachment.id, 'uploaded');
             return {
               ...attachment,
               uri: uriInfo.normalizedUri || attachment.uri,
+              status: 'uploaded',
             } satisfies SessionAttachment;
           } catch (error) {
             if (!attachment.uri && !uriInfo.normalizedUri) {
+              updateAttachmentStatus(attachment.id, 'error');
               const debug = createFailureDebug(
                 'upload-attachment',
                 `Attachment ${attachment.name} is stale and cannot be re-uploaded`,
@@ -243,6 +257,7 @@ export function UseChat(options: UseChatOptions = {}) {
         }
 
         if (!uriInfo.normalizedUri) {
+          updateAttachmentStatus(attachment.id, 'error');
           const debug = createFailureDebug(
             'upload-attachment',
             `Attachment URI missing for ${attachment.name}`,
@@ -253,20 +268,27 @@ export function UseChat(options: UseChatOptions = {}) {
         }
 
         try {
+          updateAttachmentStatus(
+            attachment.id,
+            forceRefresh ? 'retrying' : 'uploading'
+          );
           const result = await uploadAttachment({
             uri: uriInfo.normalizedUri,
             name: attachment.name,
             kind: attachment.kind,
             mimeType: attachment.mimeType,
           });
+          updateAttachmentStatus(attachment.id, 'uploaded');
           return {
             ...attachment,
             uri: uriInfo.normalizedUri,
             uploadId: result.uploadId,
             url: result.url || null,
             size: result.size || null,
+            status: 'uploaded',
           } satisfies SessionAttachment;
         } catch (error) {
+          updateAttachmentStatus(attachment.id, 'error');
           const debug = createFailureDebug(
             'upload-attachment',
             `Attachment upload failed for ${attachment.name}`,

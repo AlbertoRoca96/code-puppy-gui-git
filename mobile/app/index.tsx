@@ -8,6 +8,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Keyboard,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -86,6 +88,7 @@ export default function ChatScreen() {
   );
   const [checking, setChecking] = useState(false);
   const [showModelControls, setShowModelControls] = useState(false);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -172,22 +175,23 @@ export default function ChatScreen() {
 
   const handleHeaderLongPress = () => {
     // Hidden debug entry: long-press the title block to open storage debug.
-    router.push('/debug-storage');
+    router.push('/debug-storage' as any);
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={88}
-      >
-        <View style={styles.headerWrapper}>
+      <Pressable style={styles.container} onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={88}
+        >
+          <View style={styles.headerWrapper}>
           <View style={styles.headerTopRow}>
             <TouchableOpacity
               style={styles.headerPill}
               onPress={() =>
-                router.push(`./sessions?sessionId=${encodeURIComponent(sessionId)}`)
+                router.push(`/sessions?sessionId=${encodeURIComponent(sessionId)}` as any)
               }
             >
               <Text style={styles.headerPillText}>Chats</Text>
@@ -197,16 +201,41 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.headerCard} onLongPress={handleHeaderLongPress}>
-            <Text style={styles.title}>Code PuppyChat</Text>
-            <Text style={styles.subtitle}>
-              Selectable models, persistent sessions, and real file uploads.
-            </Text>
-            <Text style={styles.sessionText}>Session: {sessionId}</Text>
-            <Text style={styles.sessionText}>Title: {title}</Text>
-            <Text style={styles.sessionText}>Model: {model}</Text>
-            <Text style={styles.sessionText}>Preset: {presetId}</Text>
-            <Text style={styles.status}>{statusText}</Text>
+          <TouchableOpacity
+            style={styles.headerCard}
+            onLongPress={handleHeaderLongPress}
+            activeOpacity={0.95}
+          >
+            <View style={styles.headerTitleRow}>
+              <View style={styles.headerTitleCopy}>
+                <Text style={styles.title}>Code PuppyChat</Text>
+                {!headerCollapsed ? (
+                  <Text style={styles.subtitle}>
+                    Selectable models, persistent sessions, and real file uploads.
+                  </Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                style={styles.collapseButton}
+                onPress={() => setHeaderCollapsed((prev) => !prev)}
+              >
+                <Text style={styles.collapseButtonText}>
+                  {headerCollapsed ? 'Expand' : 'Minimize'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {!headerCollapsed ? (
+              <>
+                <Text style={styles.sessionText}>Session: {sessionId}</Text>
+                <Text style={styles.sessionText}>Title: {title}</Text>
+                <Text style={styles.sessionText}>Model: {model}</Text>
+                <Text style={styles.sessionText}>Preset: {presetId}</Text>
+                <Text style={styles.status}>{statusText}</Text>
+              </>
+            ) : (
+              <Text style={styles.sessionText}>Title: {title}</Text>
+            )}
 
             <View style={styles.headerButtonRow}>
               <TouchableOpacity
@@ -228,7 +257,7 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </View>
 
-            {failureDebug ? (
+            {!headerCollapsed && failureDebug ? (
               <View style={styles.debugCard}>
                 <View style={styles.debugHeader}>
                   <Text style={styles.debugTitle}>Failure debug</Text>
@@ -248,7 +277,7 @@ export default function ChatScreen() {
               </View>
             ) : null}
 
-            {showModelControls && (
+            {!headerCollapsed && showModelControls && (
               <View style={styles.controlsCard}>
                 <Text style={styles.controlLabel}>Model</Text>
                 <ScrollView
@@ -398,6 +427,7 @@ export default function ChatScreen() {
             editable={!isLoading && !isHydrating}
             returnKeyType="send"
             onSubmitEditing={handleSend}
+            onFocus={() => setHeaderCollapsed(true)}
           />
           <TouchableOpacity
             style={[
@@ -417,7 +447,8 @@ export default function ChatScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -459,6 +490,28 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderWidth: 1,
     borderColor: '#111827',
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  headerTitleCopy: {
+    flex: 1,
+  },
+  collapseButton: {
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  collapseButtonText: {
+    color: '#f9fafb',
+    fontSize: 12,
+    fontWeight: '700',
   },
   title: {
     fontSize: 24,

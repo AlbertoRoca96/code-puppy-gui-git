@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { listSessions } from '../src/lib/sessions';
 import {
   loadLocalSessionIndex,
@@ -49,13 +49,11 @@ export default function SessionsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = router.addListener('focus', () => {
+  useFocusEffect(
+    useCallback(() => {
       load();
-    });
-    load();
-    return unsubscribe;
-  }, [load, router]);
+    }, [load])
+  );
 
   const handleDelete = useCallback(
     (sessionId: string) => {

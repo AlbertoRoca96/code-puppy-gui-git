@@ -41,7 +41,7 @@ export async function normalizeDeviceFileUri(
 
   if (Platform.OS === 'android' && uri.startsWith('content://')) {
     notes.push('Android content:// URI detected; copying to cache for stable upload.');
-    const cacheDir = FileSystem.cacheDirectory;
+    const cacheDir = (FileSystem as any).cacheDirectory as string | null | undefined;
     if (!cacheDir) {
       notes.push('Expo cache directory unavailable; falling back to original content URI.');
     } else {

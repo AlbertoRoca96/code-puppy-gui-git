@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   sendMessage as apiSendMessage,
   ChatResponse,
+  getUpload,
   uploadAttachment,
 } from '../lib/api';
 import {
@@ -213,17 +214,32 @@ export function UseChat(options: UseChatOptions = {}) {
   }, [initialized, isHydrating, isLoading, sessionId, messages, attachments, model, presetId, systemPrompt]);
 
   const ensureUploadedAttachments = async (): Promise<SessionAttachment[]> => {
-    const pending = attachments.filter(
-      (attachment) => !hasUploadedAttachment(attachment) && attachment.uri
-    );
+    const resolved = await Promise.all(
+      attachments.map(async (attachment) => {
+        const uriInfo = attachment.uri
+          ? await normalizeDeviceFileUri(attachment.uri)
+          : { normalizedUri: attachment.uri, notes: [] as string[] };
 
-    if (!pending.length) {
-      return attachments;
-    }
+        if (attachment.uploadId) {
+          try {
+            await getUpload(attachment.uploadId);
+            return {
+              ...attachment,
+              uri: uriInfo.normalizedUri || attachment.uri,
+            } satisfies SessionAttachment;
+          } catch (error) {
+            if (!attachment.uri && !uriInfo.normalizedUri) {
+              const debug = createFailureDebug(
+                'upload-attachment',
+                `Attachment ${attachment.name} is stale and cannot be re-uploaded`,
+                [String(error)]
+              );
+              setFailureDebug(debug);
+              throw new Error(debug.message);
+            }
+          }
+        }
 
-    const uploaded = await Promise.all(
-      pending.map(async (attachment) => {
-        const uriInfo = await normalizeDeviceFileUri(attachment.uri);
         if (!uriInfo.normalizedUri) {
           const debug = createFailureDebug(
             'upload-attachment',
@@ -260,14 +276,9 @@ export function UseChat(options: UseChatOptions = {}) {
       })
     );
 
-    const merged = attachments.map((attachment) => {
-      const replacement = uploaded.find((item) => item.id === attachment.id);
-      return replacement || attachment;
-    });
-
-    setAttachments(merged);
-    await persistState(messages, '', merged);
-    return merged;
+    setAttachments(resolved);
+    await persistState(messages, '', resolved);
+    return resolved;
   };
 
   const sendMessage = async (prompt: string) => {

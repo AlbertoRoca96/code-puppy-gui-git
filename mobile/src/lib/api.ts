@@ -145,7 +145,25 @@ export async function uploadAttachment(params: {
     }
   }
 
-  return text ? JSON.parse(text) : {};
+  if (!text) {
+    throw new Error('Upload endpoint returned an empty response body');
+  }
+  return JSON.parse(text) as AttachmentUploadResponse;
+}
+
+export async function getUpload(uploadId: string): Promise<AttachmentUploadResponse> {
+  const raw = await apiCall(`/api/upload/${encodeURIComponent(uploadId)}`, {
+    method: 'GET',
+  });
+  return {
+    uploadId: String(raw.uploadId ?? uploadId),
+    name: String(raw.name ?? ''),
+    kind: (raw.kind ?? 'file') as 'file' | 'image',
+    mimeType: raw.mimeType ?? null,
+    size: raw.size ?? null,
+    url: raw.url ?? null,
+    createdAt: raw.createdAt,
+  };
 }
 
 export async function getHealth(): Promise<HealthStatus> {

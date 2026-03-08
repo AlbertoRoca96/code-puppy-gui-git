@@ -3,6 +3,9 @@ import * as SecureStore from 'expo-secure-store';
 const SUPABASE_URL = 'https://apalydgxzngsmzxgldlz.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_QLhy2Ilvvo8d2M3kQaEhYw_VhHVwJ8K';
 const AUTH_STORAGE_KEY = 'code_puppy_supabase_session';
+const EXPIRY_SKEW_SECONDS = 60;
+
+let refreshPromise: Promise<SupabaseAuthSession | null> | null = null;
 
 export interface SupabaseAuthSession {
   access_token: string;
@@ -56,24 +59,43 @@ export async function saveStoredSession(session: SupabaseAuthSession | null): Pr
   await SecureStore.setItemAsync(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
+function normalizeSession(session: SupabaseAuthSession): SupabaseAuthSession {
+  const expiresIn = (session as any).expires_in;
+  const expiresAt = session.expires_at || (expiresIn ? Math.floor(Date.now() / 1000) + Number(expiresIn) : undefined);
+  return {
+    ...session,
+    expires_at: expiresAt,
+  };
+}
+
+function isSessionExpired(session: SupabaseAuthSession | null): boolean {
+  if (!session?.access_token) return true;
+  if (!session.expires_at) return false;
+  return session.expires_at <= Math.floor(Date.now() / 1000) + EXPIRY_SKEW_SECONDS;
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<SupabaseAuthSession> {
-  const data = await authRequest('/auth/v1/token?grant_type=password', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-  await saveStoredSession(data as SupabaseAuthSession);
-  return data as SupabaseAuthSession;
+  const data = normalizeSession(
+    (await authRequest('/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })) as SupabaseAuthSession
+  );
+  await saveStoredSession(data);
+  return data;
 }
 
 export async function signUpWithPassword(email: string, password: string): Promise<SupabaseAuthSession> {
-  const data = await authRequest('/auth/v1/signup', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-  if ((data as SupabaseAuthSession).access_token) {
-    await saveStoredSession(data as SupabaseAuthSession);
+  const data = normalizeSession(
+    (await authRequest('/auth/v1/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    })) as SupabaseAuthSession
+  );
+  if (data.access_token) {
+    await saveStoredSession(data);
   }
-  return data as SupabaseAuthSession;
+  return data;
 }
 
 export async function signOut(): Promise<void> {
@@ -90,7 +112,49 @@ export async function signOut(): Promise<void> {
   await saveStoredSession(null);
 }
 
-export async function getAccessToken(): Promise<string | null> {
+export async function refreshStoredSession(force = false): Promise<SupabaseAuthSession | null> {
+  const current = await loadStoredSession();
+  if (!current?.refresh_token) {
+    await saveStoredSession(null);
+    return null;
+  }
+  if (!force && !isSessionExpired(current)) {
+    return current;
+  }
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const refreshed = normalizeSession(
+          (await authRequest('/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST',
+            body: JSON.stringify({ refresh_token: current.refresh_token }),
+          })) as SupabaseAuthSession
+        );
+        await saveStoredSession(refreshed);
+        return refreshed;
+      } catch {
+        await saveStoredSession(null);
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
+export async function getValidAccessToken(forceRefresh = false): Promise<string | null> {
   const session = await loadStoredSession();
-  return session?.access_token || null;
+  if (!session) {
+    return null;
+  }
+  if (forceRefresh || isSessionExpired(session)) {
+    const refreshed = await refreshStoredSession(true);
+    return refreshed?.access_token || null;
+  }
+  return session.access_token || null;
+}
+
+export async function getAccessToken(): Promise<string | null> {
+  return getValidAccessToken(false);
 }

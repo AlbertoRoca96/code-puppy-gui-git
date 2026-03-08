@@ -1,6 +1,6 @@
 // Code Puppy API client for Puppy Chat mobile app
 
-import { getAccessToken } from './auth';
+import { getAccessToken, getValidAccessToken } from './auth';
 
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
@@ -17,8 +17,8 @@ export interface AttachmentUploadResponse {
   createdAt?: number;
 }
 
-async function buildAuthHeaders(options: RequestInit = {}) {
-  const accessToken = await getAccessToken();
+async function buildAuthHeaders(options: RequestInit = {}, forceRefresh = false) {
+  const accessToken = await getValidAccessToken(forceRefresh);
   return {
     'Content-Type': 'application/json',
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -36,10 +36,17 @@ export async function apiCall(
 
   const url = `${API_BASE}${endpoint}`;
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers: await buildAuthHeaders(options),
   });
+
+  if (response.status === 401) {
+    response = await fetch(url, {
+      ...options,
+      headers: await buildAuthHeaders(options, true),
+    });
+  }
 
   const text = await response.text();
 
@@ -138,12 +145,21 @@ export async function uploadAttachment(params: {
     type: params.mimeType || 'application/octet-stream',
   } as any);
 
-  const accessToken = await getAccessToken();
-  const response = await fetch(`${getApiBase()}/api/uploads`, {
+  let accessToken = await getAccessToken();
+  let response = await fetch(`${getApiBase()}/api/uploads`, {
     method: 'POST',
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
     body: formData,
   });
+
+  if (response.status === 401) {
+    accessToken = await getValidAccessToken(true);
+    response = await fetch(`${getApiBase()}/api/uploads`, {
+      method: 'POST',
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      body: formData,
+    });
+  }
 
   const text = await response.text();
   if (!response.ok) {

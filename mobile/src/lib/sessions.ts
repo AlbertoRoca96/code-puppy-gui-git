@@ -57,6 +57,12 @@ export async function saveSession(
   });
 }
 
+export async function deleteRemoteSession(sessionId: string): Promise<{ status: string }> {
+  return apiCall(`/api/session/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function createSessionId(): string {
   return `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }

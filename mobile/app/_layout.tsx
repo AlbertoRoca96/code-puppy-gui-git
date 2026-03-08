@@ -13,6 +13,10 @@ export default function RootLayout() {
         options={{ title: 'Chats' }}
       />
       <Stack.Screen
+        name="debug-storage"
+        options={{ title: 'Storage debug' }}
+      />
+      <Stack.Screen
         name="settings"
         options={{ title: 'Settings' }}
       />

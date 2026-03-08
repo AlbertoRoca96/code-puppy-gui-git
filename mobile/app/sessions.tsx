@@ -7,10 +7,18 @@ import {
   FlatList,
   ActivityIndicator,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { listSessions, SessionSummary } from '../src/lib/sessions';
+import { listSessions } from '../src/lib/sessions';
+import {
+  loadLocalSessionIndex,
+  mergeLocalAndRemoteSessions,
+  MergedSessionSummary,
+  deleteLocalSession,
+} from '../src/lib/localSessions';
+import { deleteRemoteSession } from '../src/lib/sessions';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';
@@ -20,15 +28,19 @@ export default function SessionsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ sessionId?: string }>();
   const currentSessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessions, setSessions] = useState<MergedSessionSummary[]>([]);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const items = await listSessions();
-      setSessions(items);
+      const [localIndex, remoteItems] = await Promise.all([
+        loadLocalSessionIndex(),
+        listSessions(),
+      ]);
+      const merged = mergeLocalAndRemoteSessions(localIndex, remoteItems);
+      setSessions(merged);
     } catch (error) {
       console.error('Failed to load sessions', error);
       setSessions([]);
@@ -38,8 +50,41 @@ export default function SessionsScreen() {
   }, []);
 
   useEffect(() => {
+    const unsubscribe = router.addListener('focus', () => {
+      load();
+    });
     load();
-  }, [load]);
+    return unsubscribe;
+  }, [load, router]);
+
+  const handleDelete = useCallback(
+    (sessionId: string) => {
+      Alert.alert(
+        'Delete chat',
+        'This will remove the chat from this device and the backend (if present).',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteLocalSession(sessionId);
+                try {
+                  await deleteRemoteSession(sessionId);
+                } catch (remoteError) {
+                  console.warn('Failed to delete remote session', remoteError);
+                }
+              } finally {
+                load();
+              }
+            },
+          },
+        ]
+      );
+    },
+    [load]
+  );
 
   const filteredSessions = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -81,15 +126,34 @@ export default function SessionsScreen() {
             renderItem={({ item }) => {
               const isActive = item.sessionId === currentSessionId;
               return (
-                <TouchableOpacity
+                <View
                   style={[styles.sessionCard, isActive && styles.sessionCardActive]}
-                  onPress={() => router.push(`/?sessionId=${encodeURIComponent(item.sessionId)}`)}
                 >
-                  <Text style={styles.sessionTitle}>{item.title || 'New chat'}</Text>
-                  <Text style={styles.sessionMeta}>
-                    {item.messageCount} msgs • {new Date(item.updatedAt * 1000).toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.sessionMain}
+                    onPress={() =>
+                      router.push(`/?sessionId=${encodeURIComponent(item.sessionId)}`)
+                    }
+                  >
+                    <Text style={styles.sessionTitle}>{item.title || 'New chat'}</Text>
+                    <Text style={styles.sessionMeta}>
+                      {item.messageCount} msgs
+                      {item.source === 'local'
+                        ? ' • local only'
+                        : item.source === 'both'
+                        ? ' • synced'
+                        : ''}
+                      {' '}
+                      • {new Date(item.updatedAt * 1000).toLocaleString()}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => handleDelete(item.sessionId)}
+                  >
+                    <Text style={styles.deleteText}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
               );
             }}
             ListEmptyComponent={
@@ -159,8 +223,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#111827',
     borderRadius: 16,
-    padding: 14,
+    padding: 10,
     marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   sessionCardActive: {
     borderColor: ACCENT,
@@ -168,6 +234,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
+  },
+  sessionMain: {
+    flex: 1,
   },
   sessionTitle: {
     color: '#f9fafb',
@@ -178,6 +247,20 @@ const styles = StyleSheet.create({
     marginTop: 6,
     color: '#9ca3af',
     fontSize: 13,
+  },
+  deleteButton: {
+    marginLeft: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    backgroundColor: '#1f2933',
+  },
+  deleteText: {
+    color: '#fecaca',
+    fontSize: 12,
+    fontWeight: '700',
   },
   centered: {
     flex: 1,

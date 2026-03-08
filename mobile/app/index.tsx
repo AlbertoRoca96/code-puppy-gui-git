@@ -170,6 +170,11 @@ export default function ChatScreen() {
     }
   };
 
+  const handleHeaderLongPress = () => {
+    // Hidden debug entry: long-press the title block to open storage debug.
+    router.push('/debug-storage');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -192,7 +197,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.headerCard}>
+          <TouchableOpacity style={styles.headerCard} onLongPress={handleHeaderLongPress}>
             <Text style={styles.title}>Code PuppyChat</Text>
             <Text style={styles.subtitle}>
               Selectable models, persistent sessions, and real file uploads.
@@ -310,7 +315,7 @@ export default function ChatScreen() {
                 />
               </View>
             )}
-          </View>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.chatWrapper}>

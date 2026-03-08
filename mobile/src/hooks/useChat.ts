@@ -10,12 +10,17 @@ import {
 } from '../lib/attachments';
 import { normalizeDeviceFileUri } from '../lib/devicePaths';
 import {
+  loadLocalSessionSnapshot,
+  saveLocalSessionSnapshot,
+} from '../lib/localSessions';
+import {
   createSessionId,
   deriveSessionTitle,
   loadSession,
   saveSession,
   SessionAttachment,
   SessionMessage,
+  SessionSnapshot,
 } from '../lib/sessions';
 
 export interface Message {
@@ -91,49 +96,71 @@ export function UseChat(options: UseChatOptions = {}) {
   useEffect(() => {
     let cancelled = false;
 
-    if (!options.initialSessionId) {
-      setInitialized(true);
-      return;
+    async function hydrate() {
+      if (!options.initialSessionId) {
+        setInitialized(true);
+        return;
+      }
+
+      setIsHydrating(true);
+      setInitialized(false);
+
+      try {
+        const localSnapshot = await loadLocalSessionSnapshot(options.initialSessionId);
+        if (localSnapshot && !cancelled) {
+          setSessionId(localSnapshot.sessionId);
+          setMessages(toUiMessages(localSnapshot.messages || []));
+          setAttachments(localSnapshot.attachments || []);
+          setModel(localSnapshot.model || DEFAULT_MODEL);
+          setPresetId(localSnapshot.presetId || DEFAULT_PRESET);
+          setSystemPrompt(localSnapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+        }
+      } catch (error) {
+        console.warn('Failed to load local session snapshot', error);
+      }
+
+      loadSession(options.initialSessionId)
+        .then((snapshot) => {
+          if (cancelled) return;
+          setSessionId(snapshot.sessionId || options.initialSessionId || createSessionId());
+          setMessages(toUiMessages(snapshot.messages || []));
+          setAttachments(snapshot.attachments || []);
+          setModel(snapshot.model || DEFAULT_MODEL);
+          setPresetId(snapshot.presetId || DEFAULT_PRESET);
+          setSystemPrompt(snapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+        })
+        .catch((error) => {
+          console.warn('Failed to load remote session', error);
+          setFailureDebug(
+            createFailureDebug('load-session', 'Failed to load session from server', [
+              String(error),
+            ])
+          );
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setIsHydrating(false);
+            setInitialized(true);
+          }
+        });
     }
 
-    setIsHydrating(true);
-    setInitialized(false);
-
-    loadSession(options.initialSessionId)
-      .then((snapshot) => {
-        if (cancelled) return;
-        setSessionId(snapshot.sessionId || options.initialSessionId || createSessionId());
-        setMessages(toUiMessages(snapshot.messages || []));
-        setAttachments(snapshot.attachments || []);
-        setModel(snapshot.model || DEFAULT_MODEL);
-        setPresetId(snapshot.presetId || DEFAULT_PRESET);
-        setSystemPrompt(snapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
-      })
-      .catch((error) => {
-        console.warn('Failed to load session', error);
-        setFailureDebug(
-          createFailureDebug('load-session', 'Failed to load session', [String(error)])
-        );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsHydrating(false);
-          setInitialized(true);
-        }
-      });
+    hydrate().catch((error) => {
+      console.warn('Unexpected hydrate error', error);
+    });
 
     return () => {
       cancelled = true;
     };
   }, [options.initialSessionId]);
 
-  const persistState = async (
+  const buildSnapshot = (
     nextMessages: Message[],
     nextComposer = '',
     nextAttachments: SessionAttachment[] = attachments
-  ) => {
+  ): SessionSnapshot => {
     const snapshotMessages = toSessionMessages(nextMessages);
-    await saveSession(sessionId, {
+    return {
       sessionId,
       title: deriveSessionTitle(snapshotMessages),
       messages: snapshotMessages,
@@ -143,7 +170,19 @@ export function UseChat(options: UseChatOptions = {}) {
       model,
       presetId,
       systemPrompt,
-    });
+    };
+  };
+
+  const persistState = async (
+    nextMessages: Message[],
+    nextComposer = '',
+    nextAttachments: SessionAttachment[] = attachments
+  ) => {
+    const snapshot = buildSnapshot(nextMessages, nextComposer, nextAttachments);
+    await Promise.all([
+      saveSession(sessionId, snapshot),
+      saveLocalSessionSnapshot(snapshot),
+    ]);
   };
 
   useEffect(() => {

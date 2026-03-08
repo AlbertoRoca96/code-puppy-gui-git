@@ -859,6 +859,18 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
     return {"status": "saved", "updatedAt": payload["updatedAt"]}
 
 
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str) -> Dict[str, Any]:
+    path = _session_file(session_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {exc}") from exc
+    return {"status": "deleted", "sessionId": session_id}
+
+
 @app.get("/api/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}

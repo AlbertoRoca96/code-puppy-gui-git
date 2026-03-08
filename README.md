@@ -5,13 +5,14 @@ Live deployment targets:
 - **Frontend:** <https://albertoroca96.github.io/code-puppy-gui-git/>
 - **Backend (after Fly deploy):** <https://code-puppy-api.fly.dev>
 
-This repo now has **three** pieces that work together:
+This repo now has **four** pieces that work together:
 
 | Folder | Purpose |
 | --- | --- |
 | `src/code_puppy_gui` | The original desktop/Tkinter GUI + worker module. |
 | `backend/` | FastAPI service that shells into the worker and exposes it over HTTPS. |
 | `docs/` | Static React single-page app (served by GitHub Pages) that talks to the backend. |
+| `mobile/` | Expo React Native iOS/Android app that talks to the backend. |
 
 The idea: deploy the backend once (we picked **Fly.io**), expose it over HTTPS, then point the GitHub Pages UI at that endpoint. Boom – a Code Puppy that runs in the browser without your laptop being online.
 
@@ -112,15 +113,105 @@ You can still override the API endpoint at runtime by editing the input field or
 ## Deployment checklist
 
 1. **Set up Fly secrets:** `flyctl secrets set SYN_API_KEY=... OPEN_API_KEY=...` (or let the GitHub Action do it).
-2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY` (+ `OPEN_API_KEY` if using OpenAI models).
+2. **Add GitHub secrets:** `FLY_API_TOKEN` + `SYN_API_KEY` (+ `OPEN_API_KEY` if using OpenAI models). **Also add `EXPO_TOKEN`** for mobile builds.
 3. **Push to `main`:** the workflow builds + deploys automatically.
 4. **Frontend auto-publishes** from `/docs` via GitHub Pages.
-5. **Desktop app** still works through `pip install -e . && code-puppy-gui` if you want a native feel.
+5. **Mobile app** builds automatically via GitHub Actions when you push to `main`.
+6. **Desktop app** still works through `pip install -e . && code-puppy-gui` if you want a native feel.
 
-That’s it. You now have:
+### All Deployments
+
+| Deployment | URL | Platform | Status |
+|------------|-----|----------|--------|
+| Desktop | Local install only | Python | ✅ Works |
+| Web | https://albertoroca96.github.io/code-puppy-gui-git/ | GitHub Pages | ✅ Live |
+| API Backend | https://code-puppy-api.fly.dev | Fly.io | ✅ Live |
+| Mobile iOS | TestFlight (via EAS Build) | iOS App Store | 🔄 Ready to build |
+| Mobile Android | APK (via EAS Build) | Play Store | 🔄 Ready to build |
+
+That's it. You now have:
 
 - `code-puppy-gui.exe` for local work
 - A FastAPI API for other clients
 - A React website on GitHub Pages that can hit that API
+- An iOS/Android mobile app built with Expo
+
+All three share the same FastAPI backend for consistent AI responses!
 
 Go make it sassier than every overpriced IDE. 🐶🔥
+
+---
+
+## 4. Mobile App (iOS/Android) 📱
+
+### Local Development
+
+```bash
+cd mobile
+npm install
+npm start
+# Press 'i' for iOS simulator, 'a' for Android emulator
+```
+
+### Setup EAS (One-time for production builds)
+
+```bash
+npm install -g eas-cli
+eas login
+cd mobile
+eas build:configure
+```
+
+### GitHub Actions
+
+The `.github/workflows/mobile-build.yml` workflow automatically builds iOS TestFlight and Android APKs whenever you push to `main`.
+
+**Required GitHub Secret:**
+- `EXPO_TOKEN` – Get from https://expo.dev/settings/access-tokens
+
+### Build for Production
+
+```bash
+cd mobile
+eas build --platform ios --profile production   # iOS TestFlight
+eas build --platform android --profile production # Android APK/APK Store build
+
+# Submit to App Store
+eas submit --platform ios --profile production
+```
+
+### Configuration
+
+The mobile app is configured in `mobile/app.config.ts` and connects automatically to:\n- Local dev: `http://localhost:8000`
+- Production: `https://code-puppy-api.fly.dev`
+
+You can configure a different endpoint in the mobile Settings screen or by setting environment variables.
+
+### Architecture
+
+```
+                GitHub Repo
+          code-puppy-gui-git
+                 │
+      ┌────────────┼────────────┐
+      │            │            │
+  Desktop      Web         Mobile
+  (Python)     (React)    (Expo/ReactNative)
+      │            │            │
+      └────────────┴────────────┘
+                   │
+                   ▼
+         FastAPI Backend
+         code-puppy-api.fly.dev
+                   │
+                   ▼
+            AI Models (Synthetic,
+                      OpenAI, etc.)
+```
+
+All three frontends share the same backend for consistent behavior!
+
+### See Also
+
+- `SETUP_GUIDE.md` - Full setup instructions for all 4 deployments
+- `mobile/README.md` - Mobile-specific documentation

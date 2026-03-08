@@ -1,0 +1,31 @@
+# Expo
+.expo/
+.expo-shared/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Metro
+.metro-health-check*
+
+# Babel
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# EAS
+.expo/
+
+# Node
+node_modules/

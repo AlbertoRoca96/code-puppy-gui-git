@@ -1,0 +1,91 @@
+name: Build and Test Mobile App
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mobile/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'mobile/**'
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 📦 Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.npm
+            mobile/node_modules
+          key: ${{ runner.os }}-mobile-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mobile-
+
+      - name: 🏗️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: 🔨 Install dependencies
+        working-directory: ./mobile
+        run: npm ci
+
+      - name: ✅ Type check
+        working-directory: ./mobile
+        run: npx tsc --noEmit
+
+      - name: 📱 Build iOS TestFlight
+        if: github.ref == 'refs/heads/main'
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          command: build --platform ios --profile preview --non-interactive
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 📦 Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.npm
+            mobile/node_modules
+          key: ${{ runner.os }}-mobile-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-mobile-
+
+      - name: 🏗️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: 🔨 Install dependencies
+        working-directory: ./mobile
+        run: npm ci
+
+      - name: ✅ Type check
+        working-directory: ./mobile
+        run: npx tsc --noEmit
+
+      - name: 🤖 Build Android APK
+        if: github.ref == 'refs/heads/main'
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          command: build --platform android --profile preview --non-interactive

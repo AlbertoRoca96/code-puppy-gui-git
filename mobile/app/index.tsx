@@ -18,6 +18,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { UseChat } from '../src/hooks/useChat';
 import { getHealth } from '../src/lib/api';
+import { loadStoredSession, signOut } from '../src/lib/auth';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';
@@ -84,6 +85,7 @@ export default function ChatScreen() {
   } = UseChat({ initialSessionId });
 
   const [input, setInput] = useState('');
+  const [authChecked, setAuthChecked] = useState(false);
   const [statusText, setStatusText] = useState(
     'Woof! Tap "Check backend" to verify connectivity.'
   );
@@ -91,6 +93,21 @@ export default function ChatScreen() {
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
+
+  useEffect(() => {
+    loadStoredSession()
+      .then((session) => {
+        if (!session?.access_token) {
+          router.replace('/auth' as any);
+        }
+      })
+      .finally(() => setAuthChecked(true));
+  }, [router]);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.replace('/auth' as any);
+  };
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -206,6 +223,10 @@ export default function ChatScreen() {
     scrollToBottom();
   }, [messages.length, attachments.length, headerCollapsed]);
 
+  if (!authChecked) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -225,6 +246,9 @@ export default function ChatScreen() {
             </TouchableOpacity>
             <TouchableOpacity style={styles.headerPill} onPress={handleNewChat}>
               <Text style={styles.headerPillText}>New chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerPill} onPress={handleSignOut}>
+              <Text style={styles.headerPillText}>Sign out</Text>
             </TouchableOpacity>
           </View>
 

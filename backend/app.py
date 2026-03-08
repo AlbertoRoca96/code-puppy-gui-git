@@ -19,7 +19,7 @@ from typing import Any, Dict, List
 import httpx
 import pytesseract
 from docx import Document
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -289,15 +289,17 @@ def _upload_metadata_file(upload_id: str) -> Path:
     return _UPLOAD_DIR / f"{safe_id}.json"
 
 
-def _supabase_object_key(upload_id: str, filename: str) -> str:
+def _supabase_object_key(upload_id: str, filename: str, user_id: str | None = None) -> str:
     safe_id = _sanitize_upload_id(upload_id)
     safe_name = _sanitize_filename(filename)
-    return f"uploads/{safe_id}/{safe_name}"
+    safe_user = re.sub(r"[^A-Za-z0-9_-]+", "_", (user_id or "anonymous"))[:128]
+    return f"uploads/{safe_user}/{safe_id}/{safe_name}"
 
 
-def _supabase_metadata_key(upload_id: str) -> str:
+def _supabase_metadata_key(upload_id: str, user_id: str | None = None) -> str:
     safe_id = _sanitize_upload_id(upload_id)
-    return f"uploads/{safe_id}/metadata.json"
+    safe_user = re.sub(r"[^A-Za-z0-9_-]+", "_", (user_id or "anonymous"))[:128]
+    return f"uploads/{safe_user}/{safe_id}/metadata.json"
 
 
 def _supabase_storage_url(object_key: str) -> str:
@@ -439,11 +441,42 @@ async def _supabase_db_request(
         return response.json()
 
 
-async def _load_supabase_session(session_id: str) -> Dict[str, Any]:
+async def _get_current_user(authorization: str | None) -> Dict[str, Any]:
+    if not _SUPABASE_DB_ENABLED:
+        raise HTTPException(status_code=503, detail="Supabase auth is not configured")
+    token = (authorization or "").strip()
+    if not token.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    access_token = token.split(" ", 1)[1].strip()
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+        response = await client.get(
+            f"{_SUPABASE_URL}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "apikey": _SUPABASE_SERVICE_ROLE_KEY,
+            },
+        )
+        if response.status_code >= 400:
+            detail = response.text or response.reason_phrase
+            raise HTTPException(status_code=401, detail=detail)
+        user = response.json()
+        if not isinstance(user, dict) or not user.get("id"):
+            raise HTTPException(status_code=401, detail="Invalid auth user response")
+        return user
+
+
+async def _load_supabase_session(session_id: str, user_id: str) -> Dict[str, Any]:
     rows = await _supabase_db_request(
         "GET",
         "/chat_sessions",
-        params={"session_id": f"eq.{session_id}", "select": "payload"},
+        params={
+            "session_id": f"eq.{session_id}",
+            "user_id": f"eq.{user_id}",
+            "select": "payload",
+        },
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -453,12 +486,13 @@ async def _load_supabase_session(session_id: str) -> Dict[str, Any]:
     return payload
 
 
-async def _save_supabase_session(session_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def _save_supabase_session(session_id: str, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     now = payload.get("updatedAt") or time.time()
     title = payload.get("title") or _derive_title(payload)
     message_count = len(payload.get("messages") or [])
     body = {
         "session_id": session_id,
+        "user_id": user_id,
         "title": title,
         "updated_at": now,
         "message_count": message_count,
@@ -477,11 +511,12 @@ async def _save_supabase_session(session_id: str, payload: Dict[str, Any]) -> Di
     }
 
 
-async def _list_supabase_sessions(limit: int) -> List[Dict[str, Any]]:
+async def _list_supabase_sessions(limit: int, user_id: str) -> List[Dict[str, Any]]:
     rows = await _supabase_db_request(
         "GET",
         "/chat_sessions",
         params={
+            "user_id": f"eq.{user_id}",
             "select": "session_id,title,updated_at,message_count",
             "order": "updated_at.desc",
             "limit": str(limit),
@@ -498,11 +533,11 @@ async def _list_supabase_sessions(limit: int) -> List[Dict[str, Any]]:
     ]
 
 
-async def _delete_supabase_session(session_id: str) -> Dict[str, Any]:
+async def _delete_supabase_session(session_id: str, user_id: str) -> Dict[str, Any]:
     await _supabase_db_request(
         "DELETE",
         "/chat_sessions",
-        params={"session_id": f"eq.{session_id}"},
+        params={"session_id": f"eq.{session_id}", "user_id": f"eq.{user_id}"},
         prefer="return=representation",
     )
     return {"status": "deleted", "sessionId": session_id}
@@ -998,6 +1033,7 @@ async def chat(payload: ChatRequest) -> Dict[str, Any]:
 async def upload_attachment(
     file: UploadFile = File(...),
     kind: str = Form("file"),
+    authorization: str | None = Header(default=None),
 ) -> Dict[str, Any]:
     upload_id = uuid.uuid4().hex
     filename = _sanitize_filename(file.filename)
@@ -1014,11 +1050,15 @@ async def upload_attachment(
         "createdAt": time.time(),
     }
 
+    current_user = await _get_current_user(authorization) if _SUPABASE_DB_ENABLED else None
+    user_id = str(current_user.get("id")) if current_user else None
+
     if _SUPABASE_ENABLED:
-        object_key = _supabase_object_key(upload_id, filename)
-        metadata_key = _supabase_metadata_key(upload_id)
+        object_key = _supabase_object_key(upload_id, filename, user_id)
+        metadata_key = _supabase_metadata_key(upload_id, user_id)
         metadata["storageObjectKey"] = object_key
         metadata["storageMetadataKey"] = metadata_key
+        metadata["userId"] = user_id
         try:
             await _supabase_upload_bytes(
                 object_key,
@@ -1045,15 +1085,27 @@ async def upload_attachment(
 
 
 @app.get("/api/upload/{upload_id}")
-async def get_upload(upload_id: str) -> Dict[str, Any]:
-    return await _load_upload_metadata_async(upload_id)
+async def get_upload(
+    upload_id: str,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
+    metadata = await _load_upload_metadata_async(upload_id)
+    if _SUPABASE_DB_ENABLED:
+        current_user = await _get_current_user(authorization)
+        if metadata.get("userId") != current_user.get("id"):
+            raise HTTPException(status_code=404, detail="Upload not found")
+    return metadata
 
 
 @app.get("/api/session/{session_id}")
-async def load_session(session_id: str) -> Dict[str, Any]:
+async def load_session(
+    session_id: str,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
     _session_file(session_id)
     if _SUPABASE_DB_ENABLED:
-        data = await _load_supabase_session(session_id)
+        current_user = await _get_current_user(authorization)
+        data = await _load_supabase_session(session_id, str(current_user.get("id")))
     else:
         path = _session_file(session_id)
         if not path.exists():
@@ -1070,10 +1122,14 @@ async def load_session(session_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/sessions")
-async def list_sessions(limit: int = 50) -> Dict[str, Any]:
+async def list_sessions(
+    limit: int = 50,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
     max_items = max(1, min(limit, 100))
     if _SUPABASE_DB_ENABLED:
-        return {"sessions": await _list_supabase_sessions(max_items)}
+        current_user = await _get_current_user(authorization)
+        return {"sessions": await _list_supabase_sessions(max_items, str(current_user.get("id")))}
 
     entries: List[Dict[str, Any]] = []
     files = sorted(_SESSION_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -1096,7 +1152,11 @@ async def list_sessions(limit: int = 50) -> Dict[str, Any]:
 
 
 @app.put("/api/session/{session_id}")
-async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, Any]:
+async def save_session(
+    session_id: str,
+    snapshot: SessionSnapshot,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
     _session_file(session_id)
     payload = snapshot.model_dump()
     payload["sessionId"] = session_id
@@ -1106,7 +1166,9 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
     payload["title"] = _derive_title(payload)
 
     if _SUPABASE_DB_ENABLED:
-        return await _save_supabase_session(session_id, payload)
+        current_user = await _get_current_user(authorization)
+        payload["userId"] = str(current_user.get("id"))
+        return await _save_supabase_session(session_id, str(current_user.get("id")), payload)
 
     path = _session_file(session_id)
     tmp_path = path.with_suffix(".tmp")
@@ -1118,10 +1180,14 @@ async def save_session(session_id: str, snapshot: SessionSnapshot) -> Dict[str, 
 
 
 @app.delete("/api/session/{session_id}")
-async def delete_session(session_id: str) -> Dict[str, Any]:
+async def delete_session(
+    session_id: str,
+    authorization: str | None = Header(default=None),
+) -> Dict[str, Any]:
     _session_file(session_id)
     if _SUPABASE_DB_ENABLED:
-        return await _delete_supabase_session(session_id)
+        current_user = await _get_current_user(authorization)
+        return await _delete_supabase_session(session_id, str(current_user.get("id")))
 
     path = _session_file(session_id)
     if not path.exists():

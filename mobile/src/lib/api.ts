@@ -1,5 +1,7 @@
 // Code Puppy API client for Puppy Chat mobile app
 
+import { getAccessToken } from './auth';
+
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -15,6 +17,15 @@ export interface AttachmentUploadResponse {
   createdAt?: number;
 }
 
+async function buildAuthHeaders(options: RequestInit = {}) {
+  const accessToken = await getAccessToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...(options.headers || {}),
+  };
+}
+
 export async function apiCall(
   endpoint: string,
   options: RequestInit = {}
@@ -27,10 +38,7 @@ export async function apiCall(
 
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers: await buildAuthHeaders(options),
   });
 
   const text = await response.text();
@@ -130,8 +138,10 @@ export async function uploadAttachment(params: {
     type: params.mimeType || 'application/octet-stream',
   } as any);
 
+  const accessToken = await getAccessToken();
   const response = await fetch(`${getApiBase()}/api/uploads`, {
     method: 'POST',
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
     body: formData,
   });
 

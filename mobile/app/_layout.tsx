@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
+import { loadStoredSession } from '../src/lib/auth';
 
 export default function RootLayout() {
+  const [ready, setReady] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    loadStoredSession()
+      .then((session) => setAuthenticated(Boolean(session?.access_token)))
+      .finally(() => setReady(true));
+  }, []);
+
+  if (!ready) {
+    return null;
+  }
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      {!authenticated ? (
+        <Stack.Screen
+          name="auth"
+          options={{ title: 'Sign in' }}
+        />
+      ) : null}
       <Stack.Screen
         name="index"
         options={{ title: 'Code Puppy 🐶' }}

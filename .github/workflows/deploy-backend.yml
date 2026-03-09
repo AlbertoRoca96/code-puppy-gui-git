@@ -29,6 +29,10 @@ jobs:
         run: |
           python -m compileall src/code_puppy_gui
 
+      - name: Verify backend imports cleanly
+        run: |
+          python -c "import backend.app; print('backend import ok')"
+
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
@@ -75,17 +79,8 @@ jobs:
             exit 0
           fi
 
-          if flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach; then
-            echo "Secrets synced to $FLY_APP_NAME."
-          else
-            echo "flyctl couldn't find $FLY_APP_NAME yet. Attempting to create it now..."
-            if flyctl apps create "$FLY_APP_NAME"; then
-              flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach
-            else
-              echo "::error::Unable to create Fly app $FLY_APP_NAME. Update fly.toml (app value) to a unique name or create the app manually, then rerun."
-              exit 1
-            fi
-          fi
+          flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach
+          echo "Secrets synced to $FLY_APP_NAME."
 
       - name: Deploy via Fly.io
         env:

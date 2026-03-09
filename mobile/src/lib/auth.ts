@@ -31,6 +31,41 @@ function getEmailRedirectTo(): string | undefined {
   return 'codepuppy://auth/callback';
 }
 
+async function getStoredValue(key: string): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function setStoredValue(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      // ignore browser storage failures
+    }
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
+async function deleteStoredValue(key: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // ignore browser storage failures
+    }
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
+}
+
 async function authRequest(path: string, init: RequestInit = {}) {
   const response = await fetch(`${SUPABASE_URL}${path}`, {
     ...init,
@@ -55,7 +90,7 @@ async function authRequest(path: string, init: RequestInit = {}) {
 }
 
 export async function loadStoredSession(): Promise<SupabaseAuthSession | null> {
-  const raw = await SecureStore.getItemAsync(AUTH_STORAGE_KEY);
+  const raw = await getStoredValue(AUTH_STORAGE_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as SupabaseAuthSession;
@@ -66,10 +101,10 @@ export async function loadStoredSession(): Promise<SupabaseAuthSession | null> {
 
 export async function saveStoredSession(session: SupabaseAuthSession | null): Promise<void> {
   if (!session) {
-    await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+    await deleteStoredValue(AUTH_STORAGE_KEY);
     return;
   }
-  await SecureStore.setItemAsync(AUTH_STORAGE_KEY, JSON.stringify(session));
+  await setStoredValue(AUTH_STORAGE_KEY, JSON.stringify(session));
 }
 
 function normalizeSession(session: SupabaseAuthSession): SupabaseAuthSession {

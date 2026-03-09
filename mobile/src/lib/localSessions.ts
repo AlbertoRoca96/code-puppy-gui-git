@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import type { SessionMessage, SessionAttachment, SessionSummary, SessionSnapshot } from './sessions';
 
 const INDEX_KEY = 'code-puppy:sessions:index:v1';
@@ -18,6 +19,9 @@ export interface MergedSessionSummary extends SessionSummary {
 
 async function getItem(key: string): Promise<string | null> {
   try {
+    if (Platform.OS === 'web') {
+      return window.localStorage.getItem(key);
+    }
     return await SecureStore.getItemAsync(key);
   } catch {
     return null;
@@ -26,6 +30,10 @@ async function getItem(key: string): Promise<string | null> {
 
 async function setItem(key: string, value: string): Promise<void> {
   try {
+    if (Platform.OS === 'web') {
+      window.localStorage.setItem(key, value);
+      return;
+    }
     await SecureStore.setItemAsync(key, value);
   } catch {
     // ignore storage failures; remote sessions are still source of truth
@@ -34,6 +42,10 @@ async function setItem(key: string, value: string): Promise<void> {
 
 async function deleteItem(key: string): Promise<void> {
   try {
+    if (Platform.OS === 'web') {
+      window.localStorage.removeItem(key);
+      return;
+    }
     await SecureStore.deleteItemAsync(key);
   } catch {
     // ignore failures

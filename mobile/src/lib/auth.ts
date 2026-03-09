@@ -17,6 +17,12 @@ export interface SupabaseAuthSession {
   } | null;
 }
 
+export interface AuthActionResult {
+  session: SupabaseAuthSession | null;
+  requiresEmailConfirmation?: boolean;
+  message?: string;
+}
+
 async function authRequest(path: string, init: RequestInit = {}) {
   const response = await fetch(`${SUPABASE_URL}${path}`, {
     ...init,
@@ -73,6 +79,20 @@ function isSessionExpired(session: SupabaseAuthSession | null): boolean {
   return session.expires_at <= Math.floor(Date.now() / 1000) + EXPIRY_SKEW_SECONDS;
 }
 
+export function toFriendlyAuthError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('email_not_confirmed')) {
+    return 'Your email is not confirmed yet. Check your inbox, tap the confirmation link, then sign in.';
+  }
+  if (message.toLowerCase().includes('invalid login credentials')) {
+    return 'That email/password combo did not work. Double-check it and try again.';
+  }
+  if (message.toLowerCase().includes('password should be')) {
+    return 'That password is too weak for Supabase. Try something longer and less tragic.';
+  }
+  return message;
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<SupabaseAuthSession> {
   const data = normalizeSession(
     (await authRequest('/auth/v1/token?grant_type=password', {
@@ -84,7 +104,7 @@ export async function signInWithPassword(email: string, password: string): Promi
   return data;
 }
 
-export async function signUpWithPassword(email: string, password: string): Promise<SupabaseAuthSession> {
+export async function signUpWithPassword(email: string, password: string): Promise<AuthActionResult> {
   const data = normalizeSession(
     (await authRequest('/auth/v1/signup', {
       method: 'POST',
@@ -93,8 +113,13 @@ export async function signUpWithPassword(email: string, password: string): Promi
   );
   if (data.access_token) {
     await saveStoredSession(data);
+    return { session: data, requiresEmailConfirmation: false };
   }
-  return data;
+  return {
+    session: null,
+    requiresEmailConfirmation: true,
+    message: 'Signup succeeded. Check your email and confirm your account before signing in.',
+  };
 }
 
 export async function signOut(): Promise<void> {
@@ -156,6 +181,13 @@ export async function getValidAccessToken(forceRefresh = false): Promise<string 
 
 export async function getAccessToken(): Promise<string | null> {
   return getValidAccessToken(false);
+}
+
+export async function sendPasswordResetEmail(email: string): Promise<void> {
+  await authRequest('/auth/v1/recover', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
 }
 
 export async function getCurrentSessionUser(): Promise<{

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
+import LoadingScreen from './loading';
 import { loadStoredSession } from '../src/lib/auth';
 
 export default function RootLayout() {
@@ -13,7 +14,7 @@ export default function RootLayout() {
   }, []);
 
   if (!ready) {
-    return null;
+    return <LoadingScreen />;
   }
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -23,6 +24,10 @@ export default function RootLayout() {
           options={{ title: 'Sign in' }}
         />
       ) : null}
+      <Stack.Screen
+        name="loading"
+        options={{ title: 'Loading' }}
+      />
       <Stack.Screen
         name="index"
         options={{ title: 'Code Puppy 🐶' }}

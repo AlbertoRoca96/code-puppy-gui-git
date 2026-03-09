@@ -41,6 +41,17 @@ jobs:
 
       - name: Prepare docs output
         run: |
+          python - <<'PY'
+          from pathlib import Path
+          html_files = list(Path('dist').rglob('*.html'))
+          for path in html_files:
+              content = path.read_text(encoding='utf-8')
+              content = content.replace('href="/_expo/', 'href="./_expo/')
+              content = content.replace('src="/_expo/', 'src="./_expo/')
+              content = content.replace("href='/_expo/", "href='./_expo/")
+              content = content.replace("src='/_expo/", "src='./_expo/")
+              path.write_text(content, encoding='utf-8')
+          PY
           rm -rf ../docs/*
           cp -R dist/* ../docs/
           cp dist/index.html ../docs/404.html

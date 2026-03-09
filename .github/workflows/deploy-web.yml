@@ -55,6 +55,7 @@ jobs:
           rm -rf ../docs/*
           cp -R dist/* ../docs/
           cp dist/index.html ../docs/404.html
+          touch ../docs/.nojekyll
 
       - name: Commit web export
         working-directory: .

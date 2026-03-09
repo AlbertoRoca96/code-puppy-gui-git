@@ -1,5 +1,6 @@
 // Code Puppy API client for Puppy Chat mobile app
 
+import { Platform } from 'react-native';
 import { getAccessToken, getValidAccessToken } from './auth';
 import { API_BASE } from './config';
 
@@ -139,19 +140,33 @@ export async function uploadAttachment(params: {
   kind: 'file' | 'image';
   mimeType?: string | null;
 }): Promise<AttachmentUploadResponse> {
-  const formData = new FormData();
-  formData.append('kind', params.kind);
-  formData.append('file', {
-    uri: params.uri,
-    name: params.name,
-    type: params.mimeType || 'application/octet-stream',
-  } as any);
+  const buildFormData = async (): Promise<FormData> => {
+    const formData = new FormData();
+    formData.append('kind', params.kind);
+
+    if (Platform.OS === 'web') {
+      const response = await fetch(params.uri);
+      const blob = await response.blob();
+      const file = new File([blob], params.name, {
+        type: params.mimeType || blob.type || 'application/octet-stream',
+      });
+      formData.append('file', file);
+      return formData;
+    }
+
+    formData.append('file', {
+      uri: params.uri,
+      name: params.name,
+      type: params.mimeType || 'application/octet-stream',
+    } as any);
+    return formData;
+  };
 
   let accessToken = await getAccessToken();
   let response = await fetch(`${getApiBase()}/api/uploads`, {
     method: 'POST',
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-    body: formData,
+    body: await buildFormData(),
   });
 
   if (response.status === 401) {
@@ -159,7 +174,7 @@ export async function uploadAttachment(params: {
     response = await fetch(`${getApiBase()}/api/uploads`, {
       method: 'POST',
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      body: formData,
+      body: await buildFormData(),
     });
   }
 

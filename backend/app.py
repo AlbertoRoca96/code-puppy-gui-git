@@ -501,6 +501,7 @@ async def _save_supabase_session(session_id: str, user_id: str, payload: Dict[st
     rows = await _supabase_db_request(
         "POST",
         "/chat_sessions",
+        params={"on_conflict": "user_id,session_id"},
         json_body=body,
         prefer="resolution=merge-duplicates,return=representation",
     )

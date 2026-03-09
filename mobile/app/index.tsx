@@ -31,8 +31,14 @@ const ERROR_BG = '#3f0d1b';
 
 const MODEL_OPTIONS = [
   'hf:zai-org/GLM-4.7',
-  'openai:gpt-4.1-mini',
+  'openai:gpt-5.2',
+  'openai:gpt-5.2-mini',
+  'openai:gpt-4o',
+  'openai:gpt-4o-mini',
   'openai:gpt-4.1',
+  'openai:gpt-4.1-mini',
+  'openai:o3',
+  'openai:o4-mini',
 ];
 
 const PRESET_OPTIONS = [

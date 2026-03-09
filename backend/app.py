@@ -105,6 +105,7 @@ _ATTACHMENT_TEXT_EXTENSIONS = {
 }
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 _OPENAI_VISION_MODELS = (
+    "gpt-5.2",
     "gpt-4.1",
     "gpt-4o",
     "gpt-4o-mini",
@@ -916,6 +917,11 @@ async def _invoke_syn_chat(
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages cannot be empty")
 
+    has_image_attachments = any(
+        (attachment.kind == "image")
+        or ((attachment.mimeType or "").startswith("image/"))
+        for attachment in (payload.attachments or [])
+    )
     configured_model = payload.model or os.environ.get(
         "CODE_PUPPY_CHAT_MODEL", "hf:zai-org/GLM-4.7"
     )
@@ -939,6 +945,15 @@ async def _invoke_syn_chat(
         )
 
     attachment_records = await _resolve_attachment_records(payload.attachments, user_id)
+    if has_image_attachments and not (is_openai and _supports_openai_vision(forwarded_model)):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'Model "{configured_model}" does not support image attachments. '
+                'Switch to a vision-capable OpenAI model such as '
+                'openai:gpt-5.2, openai:gpt-4o, openai:gpt-4.1, or openai:gpt-4o-mini.'
+            ),
+        )
     attachment_context = _build_attachment_context_from_records(attachment_records)
 
     chat_messages: List[Dict[str, Any]] = []

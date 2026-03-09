@@ -1,33 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Stack } from 'expo-router';
-import LoadingScreen from './loading';
-import { loadStoredSession } from '../src/lib/auth';
 
 export default function RootLayout() {
-  const [ready, setReady] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
-
-  useEffect(() => {
-    loadStoredSession()
-      .then((session) => setAuthenticated(Boolean(session?.access_token)))
-      .finally(() => setReady(true));
-  }, []);
-
-  if (!ready) {
-    return <LoadingScreen />;
-  }
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen
+        name="auth"
+        options={{ title: 'Sign in' }}
+      />
       <Stack.Screen
         name="auth/callback"
         options={{ title: 'Auth callback' }}
       />
-      {!authenticated ? (
-        <Stack.Screen
-          name="auth"
-          options={{ title: 'Sign in' }}
-        />
-      ) : null}
       <Stack.Screen
         name="loading"
         options={{ title: 'Loading' }}

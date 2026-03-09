@@ -13,7 +13,7 @@ import {
   NativeScrollEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { UseChat } from '../src/hooks/useChat';
@@ -241,6 +241,10 @@ export default function ChatScreen() {
 
   if (!authChecked) {
     return null;
+  }
+
+  if (!currentUserEmail) {
+    return <Redirect href={'/auth' as any} />;
   }
 
   return (

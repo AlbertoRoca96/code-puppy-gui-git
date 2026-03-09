@@ -21,7 +21,7 @@ import pytesseract
 from docx import Document
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
@@ -337,6 +337,11 @@ def _supabase_metadata_key(upload_id: str, user_id: str | None = None) -> str:
     return f"uploads/{safe_user}/{safe_id}/metadata.json"
 
 
+def _supabase_public_metadata_key(upload_id: str) -> str:
+    safe_id = _sanitize_upload_id(upload_id)
+    return f"uploads/public/{safe_id}/metadata.json"
+
+
 def _supabase_storage_url(object_key: str) -> str:
     return (
         f"{_SUPABASE_URL}/storage/v1/object/{_SUPABASE_STORAGE_BUCKET}/{object_key}"
@@ -379,11 +384,9 @@ def _base_public_url() -> str:
 
 
 def _build_upload_url(upload_id: str, filename: str) -> str:
-    if _SUPABASE_ENABLED:
-        return _supabase_public_storage_url(_supabase_object_key(upload_id, filename))
     base = _base_public_url()
     safe_name = _sanitize_filename(filename)
-    path = f"/uploads/{upload_id}_{safe_name}"
+    path = f"/api/upload/{upload_id}/content?filename={safe_name}"
     return f"{base}{path}" if base else path
 
 
@@ -418,16 +421,25 @@ async def _supabase_download_bytes(object_key: str) -> bytes:
 
 async def _load_upload_metadata_async(upload_id: str, user_id: str | None = None) -> Dict[str, Any]:
     if _SUPABASE_ENABLED:
-        try:
-            payload = await _supabase_download_bytes(_supabase_metadata_key(upload_id, user_id))
-        except HTTPException:
-            raise
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Supabase metadata fetch failed: {exc}") from exc
-        try:
-            return json.loads(payload.decode("utf-8"))
-        except json.JSONDecodeError as exc:
-            raise HTTPException(status_code=500, detail="Upload metadata is corrupted") from exc
+        candidate_keys = [
+            _supabase_metadata_key(upload_id, user_id),
+            _supabase_public_metadata_key(upload_id),
+        ]
+        last_http_error: httpx.HTTPError | None = None
+        for key in candidate_keys:
+            try:
+                payload = await _supabase_download_bytes(key)
+                return json.loads(payload.decode("utf-8"))
+            except HTTPException:
+                continue
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=500, detail="Upload metadata is corrupted") from exc
+            except httpx.HTTPError as exc:
+                last_http_error = exc
+                continue
+        if last_http_error:
+            raise HTTPException(status_code=502, detail=f"Supabase metadata fetch failed: {last_http_error}") from last_http_error
+        raise HTTPException(status_code=404, detail="Upload not found")
     return _load_upload_metadata(upload_id)
 
 
@@ -1127,8 +1139,10 @@ async def upload_attachment(
     if _SUPABASE_ENABLED:
         object_key = _supabase_object_key(upload_id, filename, user_id)
         metadata_key = _supabase_metadata_key(upload_id, user_id)
+        public_metadata_key = _supabase_public_metadata_key(upload_id)
         metadata["storageObjectKey"] = object_key
         metadata["storageMetadataKey"] = metadata_key
+        metadata["publicMetadataKey"] = public_metadata_key
         metadata["userId"] = user_id
         try:
             await _supabase_upload_bytes(
@@ -1136,9 +1150,15 @@ async def upload_attachment(
                 content,
                 file.content_type or "application/octet-stream",
             )
+            metadata_payload = json.dumps(metadata, ensure_ascii=False).encode("utf-8")
             await _supabase_upload_bytes(
                 metadata_key,
-                json.dumps(metadata, ensure_ascii=False).encode("utf-8"),
+                metadata_payload,
+                "application/json",
+            )
+            await _supabase_upload_bytes(
+                public_metadata_key,
+                metadata_payload,
                 "application/json",
             )
         except httpx.HTTPError as exc:
@@ -1168,6 +1188,35 @@ async def get_upload(
     if current_user and metadata.get("userId") != current_user.get("id"):
         raise HTTPException(status_code=404, detail="Upload not found")
     return metadata
+
+
+@app.get("/api/upload/{upload_id}/content")
+async def get_upload_content(upload_id: str):
+    metadata = await _load_upload_metadata_async(upload_id, None)
+    filename = _sanitize_filename(str(metadata.get("name") or "upload.bin"))
+    content_type = str(metadata.get("mimeType") or "application/octet-stream")
+
+    if _SUPABASE_ENABLED:
+        object_key = metadata.get("storageObjectKey")
+        if not object_key:
+            raise HTTPException(status_code=404, detail="Upload content not found")
+        try:
+            payload = await _supabase_download_bytes(str(object_key))
+        except HTTPException:
+            raise
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Supabase content fetch failed: {exc}") from exc
+
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix or ".bin")
+        tmp.write(payload)
+        tmp.flush()
+        tmp.close()
+        return FileResponse(tmp.name, media_type=content_type, filename=filename)
+
+    binary_path = _find_upload_binary_file(upload_id)
+    if not binary_path or not binary_path.exists():
+        raise HTTPException(status_code=404, detail="Upload content not found")
+    return FileResponse(str(binary_path), media_type=content_type, filename=filename)
 
 
 @app.get("/api/session/{session_id}")

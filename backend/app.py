@@ -21,6 +21,7 @@ import pytesseract
 from docx import Document
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
@@ -43,15 +44,31 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def add_explicit_cors_headers(request: Request, call_next):
-    response = await call_next(request)
+def _apply_cors_headers(request: Request, response: JSONResponse | Any) -> Any:
     origin = request.headers.get("origin", "")
     if origin in _ALLOWED_CORS_ORIGINS:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Vary"] = "Origin"
     return response
+
+
+@app.middleware("http")
+async def add_explicit_cors_headers(request: Request, call_next):
+    response = await call_next(request)
+    return _apply_cors_headers(request, response)
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request: Request, exc: HTTPException):
+    response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return _apply_cors_headers(request, response)
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(request: Request, exc: Exception):
+    response = JSONResponse(status_code=500, content={"detail": str(exc) or "Internal server error"})
+    return _apply_cors_headers(request, response)
 
 _ATTACHMENT_TEXT_EXTENSIONS = {
     ".txt",

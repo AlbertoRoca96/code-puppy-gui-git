@@ -18,6 +18,10 @@ export default function RootLayout() {
   }
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen
+        name="auth/callback"
+        options={{ title: 'Auth callback' }}
+      />
       {!authenticated ? (
         <Stack.Screen
           name="auth"

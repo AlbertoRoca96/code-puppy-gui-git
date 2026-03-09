@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './config';
+import { getWebAuthCallbackUrl, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './config';
 const AUTH_STORAGE_KEY = 'code_puppy_supabase_session';
 const EXPIRY_SKEW_SECONDS = 60;
 
@@ -21,6 +22,13 @@ export interface AuthActionResult {
   session: SupabaseAuthSession | null;
   requiresEmailConfirmation?: boolean;
   message?: string;
+}
+
+function getEmailRedirectTo(): string | undefined {
+  if (Platform.OS === 'web') {
+    return getWebAuthCallbackUrl();
+  }
+  return 'codepuppy://auth/callback';
 }
 
 async function authRequest(path: string, init: RequestInit = {}) {
@@ -108,7 +116,11 @@ export async function signUpWithPassword(email: string, password: string): Promi
   const data = normalizeSession(
     (await authRequest('/auth/v1/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        options: { emailRedirectTo: getEmailRedirectTo() },
+      }),
     })) as SupabaseAuthSession
   );
   if (data.access_token) {
@@ -186,8 +198,47 @@ export async function getAccessToken(): Promise<string | null> {
 export async function sendPasswordResetEmail(email: string): Promise<void> {
   await authRequest('/auth/v1/recover', {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({
+      email,
+      redirectTo: getEmailRedirectTo(),
+    }),
   });
+}
+
+export async function completeAuthFromUrl(url: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const parsed = new URL(url);
+    const code = parsed.searchParams.get('code');
+    if (code) {
+      const response = await authRequest(`/auth/v1/token?grant_type=pkce`, {
+        method: 'POST',
+        body: JSON.stringify({ auth_code: code }),
+      });
+      const session = normalizeSession(response as SupabaseAuthSession);
+      if (session.access_token) {
+        await saveStoredSession(session);
+        return { success: true, message: 'Auth completed successfully.' };
+      }
+    }
+
+    const hash = parsed.hash?.startsWith('#') ? parsed.hash.slice(1) : '';
+    const hashParams = new URLSearchParams(hash);
+    const access_token = hashParams.get('access_token');
+    const refresh_token = hashParams.get('refresh_token');
+    if (access_token && refresh_token) {
+      await saveStoredSession(
+        normalizeSession({ access_token, refresh_token, token_type: 'bearer' } as SupabaseAuthSession)
+      );
+      return { success: true, message: 'Auth completed successfully.' };
+    }
+
+    return { success: false, message: 'No auth parameters found in callback URL.' };
+  } catch (error) {
+    return {
+      success: false,
+      message: toFriendlyAuthError(error),
+    };
+  }
 }
 
 export async function getCurrentSessionUser(): Promise<{

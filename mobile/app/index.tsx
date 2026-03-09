@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { UseChat } from '../src/hooks/useChat';
 import { getCurrentUser, getHealth } from '../src/lib/api';
 import { getCurrentSessionUser, loadStoredSession, signOut } from '../src/lib/auth';
+import { useDeviceUi } from '../src/lib/device';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';
@@ -94,6 +95,7 @@ export default function ChatScreen() {
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const deviceUi = useDeviceUi();
 
   useEffect(() => {
     loadStoredSession()
@@ -244,11 +246,11 @@ export default function ChatScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, deviceUi.isWeb && styles.webContainer]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={88}
       >
-        <View style={styles.headerWrapper}>
+        <View style={[styles.headerWrapper, deviceUi.isWide && styles.webShell]}>
           <View style={styles.headerTopRow}>
             <TouchableOpacity
               style={styles.headerPill}
@@ -415,7 +417,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.chatWrapper}>
+        <View style={[styles.chatWrapper, deviceUi.isWide && styles.webShell, deviceUi.isWide && styles.webChatWrapper]}>
           <ScrollView
             ref={scrollViewRef}
             style={styles.messages}
@@ -462,7 +464,7 @@ export default function ChatScreen() {
           </ScrollView>
         </View>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, deviceUi.isWide && styles.webShell, deviceUi.isWide && styles.webFooter]}>
           <View style={styles.attachRow}>
             <TouchableOpacity style={styles.attachButton} onPress={handlePickFile}>
               <Text style={styles.attachButtonText}>+ File</Text>
@@ -548,9 +550,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BG,
   },
+  webContainer: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 1180,
+  },
   headerWrapper: {
     paddingHorizontal: 16,
     paddingTop: 8,
+  },
+  webShell: {
+    width: '100%',
+    maxWidth: 980,
+    alignSelf: 'center',
   },
   headerTopRow: {
     flexDirection: 'row',
@@ -735,6 +747,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
+  webChatWrapper: {
+    minHeight: 420,
+  },
   messages: {
     flex: 1,
   },
@@ -779,6 +794,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#111827',
     backgroundColor: BG,
+  },
+  webFooter: {
+    paddingBottom: 28,
   },
   attachRow: {
     flexDirection: 'row',

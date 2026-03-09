@@ -40,6 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         projectId: "e02a6075-5fc5-4238-8fe0-6b9c19ade4f0",
       },
       apiBase: process.env.EXPO_PUBLIC_API_BASE || "https://code-puppy-api.fly.dev",
+      webBasePath: process.env.EXPO_PUBLIC_WEB_BASE_PATH || "/code-puppy-gui-git",
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL || "https://apalydgxzngsmzxgldlz.supabase.co",
       supabasePublishableKey:
         process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||

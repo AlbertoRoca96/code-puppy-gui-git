@@ -343,6 +343,12 @@ def _supabase_storage_url(object_key: str) -> str:
     )
 
 
+def _supabase_public_storage_url(object_key: str) -> str:
+    return (
+        f"{_SUPABASE_URL}/storage/v1/object/public/{_SUPABASE_STORAGE_BUCKET}/{object_key}"
+    )
+
+
 def _supabase_headers(content_type: str | None = None) -> Dict[str, str]:
     headers = {
         "Authorization": f"Bearer {_SUPABASE_SERVICE_ROLE_KEY}",
@@ -374,7 +380,7 @@ def _base_public_url() -> str:
 
 def _build_upload_url(upload_id: str, filename: str) -> str:
     if _SUPABASE_ENABLED:
-        return _supabase_storage_url(_supabase_object_key(upload_id, filename))
+        return _supabase_public_storage_url(_supabase_object_key(upload_id, filename))
     base = _base_public_url()
     safe_name = _sanitize_filename(filename)
     path = f"/uploads/{upload_id}_{safe_name}"

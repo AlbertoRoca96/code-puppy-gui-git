@@ -1,20 +1,17 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { AppShell, shellColors } from '../src/components/AppShell';
 
 export default function AboutScreen() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>&larr; Back</Text>
-      </TouchableOpacity>
-
-      <View style={styles.header}>
-        <Text style={styles.title}>About Code Puppy 🐶</Text>
-      </View>
-      
+    <AppShell
+      title="About Code Puppy 🐶"
+      subtitle="Same product, same vibes, whether you're in the app or the browser. Finally."
+      onBack={() => router.back()}
+    >
       <View style={styles.content}>
         <Text style={styles.text}>
           Code Puppy is your sassy AI coding assistant that helps you complete tasks without bloated IDEs!
@@ -54,37 +51,17 @@ export default function AboutScreen() {
           </Text>
         </View>
       </View>
-    </View>
+    </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#f8fafc',
-  },
-  header: {
-    marginBottom: 20,
-  },
-  backBtn: {
-    marginBottom: 16,
-  },
-  backText: {
-    fontSize: 16,
-    color: '#2563eb',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1e293b',
-  },
   content: {
     gap: 20,
   },
   text: {
     fontSize: 16,
-    color: '#475569',
+    color: shellColors.text,
     lineHeight: 24,
   },
   section: {
@@ -93,11 +70,11 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1e293b',
+    color: shellColors.muted,
   },
   bullet: {
     fontSize: 16,
-    color: '#475569',
+    color: shellColors.text,
     paddingLeft: 8,
     lineHeight: 24,
   },

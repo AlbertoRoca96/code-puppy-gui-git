@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Text, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { AppShell, shellColors } from '../src/components/AppShell';
 import { getCurrentUser } from '../src/lib/api';
 import { getCurrentSessionUser, signOut } from '../src/lib/auth';
 import { API_BASE, SUPABASE_URL } from '../src/lib/config';
@@ -32,13 +33,11 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Text style={styles.backText}>&larr; Back</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.title}>Settings</Text>
-
+    <AppShell
+      title="Settings"
+      subtitle="Account, backend, and environment details without the ugly admin-panel energy."
+      onBack={() => router.back()}
+    >
       <View style={styles.section}>
         <Text style={styles.label}>Account</Text>
         <Text style={styles.description}>Email: {email}</Text>
@@ -54,36 +53,18 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>About</Text>
         <Text style={styles.description}>
-          Configure your Code Puppy mobile app settings here.
+          Configure your Code Puppy app settings here.
         </Text>
       </View>
 
       <TouchableOpacity onPress={handleSignOut} style={styles.signOutBtn}>
         <Text style={styles.signOutText}>Sign out</Text>
       </TouchableOpacity>
-    </View>
+    </AppShell>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: '#f8fafc',
-  },
-  backBtn: {
-    marginBottom: 16,
-  },
-  backText: {
-    fontSize: 16,
-    color: '#2563eb',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 24,
-    color: '#1e293b',
-  },
   section: {
     marginBottom: 24,
   },
@@ -91,16 +72,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginBottom: 8,
-    color: '#64748b',
+    color: shellColors.muted,
   },
   description: {
     fontSize: 14,
-    color: '#475569',
+    color: shellColors.text,
     marginBottom: 6,
+    lineHeight: 22,
   },
   signOutBtn: {
     marginTop: 12,
-    backgroundColor: '#dc2626',
+    backgroundColor: shellColors.danger,
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',

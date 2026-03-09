@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { shellColors } from '../src/components/AppShell';
 import { router } from 'expo-router';
 import {
   sendPasswordResetEmail,
@@ -17,11 +18,11 @@ import {
   toFriendlyAuthError,
 } from '../src/lib/auth';
 
-const BG = '#050816';
-const CARD = '#0b1020';
-const ACCENT = '#ff4ecf';
-const TEXT = '#f8fafc';
-const MUTED = '#94a3b8';
+const BG = shellColors.bg;
+const CARD = shellColors.card;
+const ACCENT = shellColors.accent;
+const TEXT = shellColors.text;
+const MUTED = shellColors.muted;
 const ERROR = '#fecaca';
 
 export default function AuthScreen() {
@@ -158,7 +159,7 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: BG },
-  container: { flex: 1, justifyContent: 'center', padding: 20 },
+  container: { flex: 1, justifyContent: 'center', padding: 20, width: '100%', maxWidth: 760, alignSelf: 'center' },
   card: { backgroundColor: CARD, borderRadius: 20, padding: 20, gap: 12 },
   title: { color: TEXT, fontSize: 28, fontWeight: '800' },
   subtitle: { color: MUTED, fontSize: 14, lineHeight: 20 },

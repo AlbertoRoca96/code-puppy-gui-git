@@ -695,13 +695,9 @@ def _extract_csv_preview(path: Path) -> str:
 
 
 def _extract_image_ocr(path: Path) -> str | None:
-    try:
-        image = Image.open(path)
-        text = pytesseract.image_to_string(image)
-        text = _truncate_text(text, _MAX_IMAGE_OCR_CHARS)
-        return text if text.strip() else "OCR did not detect readable text."
-    except Exception as exc:
-        return f"OCR unavailable or failed: {exc}"
+    return (
+        "Image OCR skipped for chat context. Use image metadata and multimodal analysis when available."
+    )
 
 
 def _extract_attachment_text(path: Path, mime_type: str | None) -> str | None:

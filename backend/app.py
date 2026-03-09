@@ -375,10 +375,10 @@ async def _supabase_download_bytes(object_key: str) -> bytes:
         return response.content
 
 
-async def _load_upload_metadata_async(upload_id: str) -> Dict[str, Any]:
+async def _load_upload_metadata_async(upload_id: str, user_id: str | None = None) -> Dict[str, Any]:
     if _SUPABASE_ENABLED:
         try:
-            payload = await _supabase_download_bytes(_supabase_metadata_key(upload_id))
+            payload = await _supabase_download_bytes(_supabase_metadata_key(upload_id, user_id))
         except HTTPException:
             raise
         except httpx.HTTPError as exc:
@@ -746,7 +746,10 @@ def _resolve_attachment_records_sync(attachments: List[AttachmentRef] | None) ->
     return records
 
 
-async def _resolve_attachment_records(attachments: List[AttachmentRef] | None) -> List[Dict[str, Any]]:
+async def _resolve_attachment_records(
+    attachments: List[AttachmentRef] | None,
+    user_id: str | None = None,
+) -> List[Dict[str, Any]]:
     if not attachments:
         return []
     if not _SUPABASE_ENABLED:
@@ -756,7 +759,7 @@ async def _resolve_attachment_records(attachments: List[AttachmentRef] | None) -
     for item in attachments:
         if not item.uploadId:
             continue
-        metadata = await _load_upload_metadata_async(item.uploadId)
+        metadata = await _load_upload_metadata_async(item.uploadId, user_id)
         binary_path = await _download_attachment_to_temp_file(metadata)
         extracted_text = (
             _extract_attachment_text(binary_path, metadata.get("mimeType"))
@@ -870,7 +873,10 @@ def _append_multimodal_images(
     return updated
 
 
-async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
+async def _invoke_syn_chat(
+    payload: ChatRequest,
+    user_id: str | None = None,
+) -> Dict[str, Any]:
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages cannot be empty")
 
@@ -896,7 +902,7 @@ async def _invoke_syn_chat(payload: ChatRequest) -> Dict[str, Any]:
             "SYN_CHAT_URL", "https://api.synthetic.new/openai/v1/chat/completions"
         )
 
-    attachment_records = await _resolve_attachment_records(payload.attachments)
+    attachment_records = await _resolve_attachment_records(payload.attachments, user_id)
     attachment_context = _build_attachment_context_from_records(attachment_records)
 
     chat_messages: List[Dict[str, Any]] = []
@@ -1030,9 +1036,11 @@ async def chat(
     payload: ChatRequest,
     authorization: str | None = Header(default=None),
 ) -> Dict[str, Any]:
-    if _SUPABASE_DB_ENABLED:
-        await _get_current_user(authorization)
-    return await _invoke_syn_chat(payload)
+    current_user = await _get_current_user(authorization) if _SUPABASE_DB_ENABLED else None
+    return await _invoke_syn_chat(
+        payload,
+        str(current_user.get("id")) if current_user else None,
+    )
 
 
 @app.post("/api/uploads")
@@ -1095,11 +1103,13 @@ async def get_upload(
     upload_id: str,
     authorization: str | None = Header(default=None),
 ) -> Dict[str, Any]:
-    metadata = await _load_upload_metadata_async(upload_id)
-    if _SUPABASE_DB_ENABLED:
-        current_user = await _get_current_user(authorization)
-        if metadata.get("userId") != current_user.get("id"):
-            raise HTTPException(status_code=404, detail="Upload not found")
+    current_user = await _get_current_user(authorization) if _SUPABASE_DB_ENABLED else None
+    metadata = await _load_upload_metadata_async(
+        upload_id,
+        str(current_user.get("id")) if current_user else None,
+    )
+    if current_user and metadata.get("userId") != current_user.get("id"):
+        raise HTTPException(status_code=404, detail="Upload not found")
     return metadata
 
 

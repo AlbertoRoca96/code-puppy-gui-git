@@ -111,7 +111,7 @@ export function UseChat(options: UseChatOptions = {}) {
         if (localSnapshot && !cancelled) {
           setSessionId(localSnapshot.sessionId);
           setMessages(toUiMessages(localSnapshot.messages || []));
-          setAttachments(localSnapshot.attachments || []);
+          setAttachments([]);
           setModel(localSnapshot.model || DEFAULT_MODEL);
           setPresetId(localSnapshot.presetId || DEFAULT_PRESET);
           setSystemPrompt(localSnapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
@@ -125,7 +125,7 @@ export function UseChat(options: UseChatOptions = {}) {
           if (cancelled) return;
           setSessionId(snapshot.sessionId || options.initialSessionId || createSessionId());
           setMessages(toUiMessages(snapshot.messages || []));
-          setAttachments(snapshot.attachments || []);
+          setAttachments([]);
           setModel(snapshot.model || DEFAULT_MODEL);
           setPresetId(snapshot.presetId || DEFAULT_PRESET);
           setSystemPrompt(snapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);

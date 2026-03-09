@@ -758,25 +758,28 @@ def _resolve_attachment_records_sync(attachments: List[AttachmentRef] | None) ->
     for item in attachments:
         if not item.uploadId:
             continue
-        metadata = _load_upload_metadata(item.uploadId)
-        binary_path = _find_upload_binary_file(item.uploadId)
-        extracted_text = (
-            _extract_attachment_text(binary_path, metadata.get("mimeType"))
-            if binary_path
-            else None
-        )
-        records.append(
-            {
-                "item": item,
-                "metadata": metadata,
-                "binary_path": binary_path,
-                "extracted_text": extracted_text,
-                "is_image": _is_image_file(
-                    binary_path or Path(metadata.get("name") or "upload.bin"),
-                    metadata.get("mimeType"),
-                ),
-            }
-        )
+        try:
+            metadata = _load_upload_metadata(item.uploadId)
+            binary_path = _find_upload_binary_file(item.uploadId)
+            extracted_text = (
+                _extract_attachment_text(binary_path, metadata.get("mimeType"))
+                if binary_path
+                else None
+            )
+            records.append(
+                {
+                    "item": item,
+                    "metadata": metadata,
+                    "binary_path": binary_path,
+                    "extracted_text": extracted_text,
+                    "is_image": _is_image_file(
+                        binary_path or Path(metadata.get("name") or "upload.bin"),
+                        metadata.get("mimeType"),
+                    ),
+                }
+            )
+        except Exception:
+            continue
     return records
 
 
@@ -793,25 +796,28 @@ async def _resolve_attachment_records(
     for item in attachments:
         if not item.uploadId:
             continue
-        metadata = await _load_upload_metadata_async(item.uploadId, user_id)
-        binary_path = await _download_attachment_to_temp_file(metadata)
-        extracted_text = (
-            _extract_attachment_text(binary_path, metadata.get("mimeType"))
-            if binary_path
-            else None
-        )
-        records.append(
-            {
-                "item": item,
-                "metadata": metadata,
-                "binary_path": binary_path,
-                "extracted_text": extracted_text,
-                "is_image": _is_image_file(
-                    binary_path or Path(metadata.get("name") or "upload.bin"),
-                    metadata.get("mimeType"),
-                ),
-            }
-        )
+        try:
+            metadata = await _load_upload_metadata_async(item.uploadId, user_id)
+            binary_path = await _download_attachment_to_temp_file(metadata)
+            extracted_text = (
+                _extract_attachment_text(binary_path, metadata.get("mimeType"))
+                if binary_path
+                else None
+            )
+            records.append(
+                {
+                    "item": item,
+                    "metadata": metadata,
+                    "binary_path": binary_path,
+                    "extracted_text": extracted_text,
+                    "is_image": _is_image_file(
+                        binary_path or Path(metadata.get("name") or "upload.bin"),
+                        metadata.get("mimeType"),
+                    ),
+                }
+            )
+        except Exception:
+            continue
     return records
 
 

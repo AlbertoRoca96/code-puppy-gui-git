@@ -27,9 +27,16 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 
 app = FastAPI(title="Code Puppy API", version="0.1.0")
+_ALLOWED_CORS_ORIGINS = [
+    "https://albertoroca96.github.io",
+    "http://localhost:8081",
+    "http://localhost:19006",
+    "http://127.0.0.1:8081",
+    "http://127.0.0.1:19006",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

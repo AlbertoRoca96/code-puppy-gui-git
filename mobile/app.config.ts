@@ -33,7 +33,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       icon: "./assets/icon.png",
     },
     plugins: [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          origin:
+            process.env.EXPO_PUBLIC_WEB_ORIGIN ||
+            "https://albertoroca96.github.io",
+        },
+      ],
     ],
     extra: {
       eas: {
@@ -52,6 +59,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     experiments: {
       typedRoutes: true,
+      baseUrl: process.env.EXPO_PUBLIC_WEB_BASE_PATH || "/code-puppy-gui-git",
     },
   };
 };

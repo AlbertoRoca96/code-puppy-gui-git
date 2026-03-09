@@ -452,6 +452,17 @@ export default function ChatScreen() {
                       : styles.assistantBubble,
                   ]}
                 >
+                  {msg.attachments?.length ? (
+                    <View style={styles.messageAttachments}>
+                      {msg.attachments.map((attachment) => (
+                        <View key={attachment.id} style={styles.messageAttachmentChip}>
+                          <Text style={styles.messageAttachmentText}>
+                            {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                   <Text
                     selectable
                     style={
@@ -775,6 +786,24 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 14,
     marginBottom: 8,
+  },
+  messageAttachments: {
+    marginBottom: 8,
+    gap: 6,
+  },
+  messageAttachmentChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  messageAttachmentText: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '600',
   },
   userBubble: {
     alignSelf: 'flex-end',

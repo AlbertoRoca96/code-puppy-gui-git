@@ -29,6 +29,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  attachments?: SessionAttachment[];
 }
 
 export interface FailureDebugInfo {
@@ -52,6 +53,7 @@ function toSessionMessages(messages: Message[]): SessionMessage[] {
   return messages.map((message) => ({
     role: message.role,
     content: message.content,
+    attachments: message.attachments || undefined,
   }));
 }
 
@@ -63,6 +65,7 @@ function toUiMessages(messages: SessionMessage[]): Message[] {
       role: message.role as 'user' | 'assistant',
       content: message.content,
       timestamp: new Date(),
+      attachments: message.attachments || [],
     }));
 }
 
@@ -178,7 +181,6 @@ export function UseChat(options: UseChatOptions = {}) {
       messages: snapshotMessages,
       composer: nextComposer,
       updatedAt: Date.now() / 1000,
-      attachments: nextAttachments,
       model,
       presetId,
       systemPrompt,
@@ -301,26 +303,33 @@ export function UseChat(options: UseChatOptions = {}) {
     );
 
     setAttachments(resolved);
-    await persistState(messages, '', resolved);
+    await persistState(messages);
     return resolved;
   };
 
   const sendMessage = async (prompt: string) => {
-    const userMsg: Message = {
+    const draftUserMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: prompt,
       timestamp: new Date(),
+      attachments: [],
     };
 
-    const messagesWithUser = [...messages, userMsg];
-    setMessages(messagesWithUser);
+    const optimisticMessages = [...messages, draftUserMsg];
+    setMessages(optimisticMessages);
     setIsLoading(true);
     setFailureDebug(null);
 
     try {
       let readyAttachments = await ensureUploadedAttachments();
-      await persistState(messagesWithUser, '', readyAttachments);
+      const userMsg: Message = {
+        ...draftUserMsg,
+        attachments: readyAttachments,
+      };
+      const messagesWithUser = [...messages, userMsg];
+      setMessages(messagesWithUser);
+      await persistState(messagesWithUser);
 
       let response: ChatResponse;
       try {
@@ -335,9 +344,15 @@ export function UseChat(options: UseChatOptions = {}) {
         const msg = error instanceof Error ? error.message : String(error);
         if (msg.includes('Upload not found') && readyAttachments.length > 0) {
           readyAttachments = await ensureUploadedAttachments(true);
-          await persistState(messagesWithUser, '', readyAttachments);
+          const retriedUserMsg: Message = {
+            ...userMsg,
+            attachments: readyAttachments,
+          };
+          const retriedMessagesWithUser = [...messages, retriedUserMsg];
+          setMessages(retriedMessagesWithUser);
+          await persistState(retriedMessagesWithUser);
           response = await apiSendMessage({
-            messages: toSessionMessages(messagesWithUser),
+            messages: toSessionMessages(retriedMessagesWithUser),
             model,
             systemPrompt,
             temperature: DEFAULT_TEMPERATURE,
@@ -353,12 +368,13 @@ export function UseChat(options: UseChatOptions = {}) {
         role: 'assistant',
         content: response.message || 'No response',
         timestamp: new Date(),
+        attachments: [],
       };
 
       const finalMessages = [...messagesWithUser, assistantMsg];
       setMessages(finalMessages);
       setAttachments([]);
-      await persistState(finalMessages, '', []);
+      await persistState(finalMessages);
     } catch (error) {
       console.error('Error sending message:', error);
       const msg = error instanceof Error ? error.message : String(error);
@@ -377,8 +393,9 @@ export function UseChat(options: UseChatOptions = {}) {
         role: 'assistant',
         content: `Error: ${msg}`,
         timestamp: new Date(),
+        attachments: [],
       };
-      const finalMessages = [...messagesWithUser, errorMsg];
+      const finalMessages = [...optimisticMessages, errorMsg];
       setMessages(finalMessages);
       try {
         await persistState(finalMessages);

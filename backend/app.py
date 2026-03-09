@@ -122,14 +122,13 @@ class ChatRequest(BaseModel):
 
 
 class SessionSnapshot(BaseModel):
-    messages: List[Dict[str, str]] = []
+    messages: List[Dict[str, Any]] = []
     composer: str | None = ""
     presetId: str | None = None
     systemPrompt: str | None = None
     apiBase: str | None = None
     updatedAt: float | None = None
     model: str | None = None
-    attachments: List[AttachmentRef] = []
 
     class Config:
         extra = "allow"

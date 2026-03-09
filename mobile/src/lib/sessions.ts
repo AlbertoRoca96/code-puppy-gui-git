@@ -3,6 +3,7 @@ import { apiCall } from './api';
 export interface SessionMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  attachments?: SessionAttachment[];
 }
 
 export type AttachmentStatus =
@@ -41,7 +42,6 @@ export interface SessionSnapshot {
   apiBase?: string | null;
   updatedAt?: number;
   model?: string | null;
-  attachments?: SessionAttachment[];
 }
 
 export async function listSessions(limit = 50): Promise<SessionSummary[]> {

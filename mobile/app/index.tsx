@@ -114,6 +114,7 @@ export default function ChatScreen() {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const messageListRef = useRef<FlatList<any> | null>(null);
   const previousMessageCountRef = useRef(0);
+  const initialScrollPendingRef = useRef(true);
   const deviceUi = useDeviceUi();
 
   useEffect(() => {
@@ -250,6 +251,15 @@ export default function ChatScreen() {
     setIsNearBottom(distanceFromBottom < 80);
   };
 
+  const handleMessagesContentSizeChange = () => {
+    if (!initialScrollPendingRef.current || messages.length === 0) {
+      return;
+    }
+    initialScrollPendingRef.current = false;
+    setIsNearBottom(true);
+    scrollToBottom(false);
+  };
+
   const handleMessagesScrollBeginDrag = (
     _event: NativeSyntheticEvent<NativeScrollEvent>
   ) => {
@@ -257,11 +267,22 @@ export default function ChatScreen() {
   };
 
   useEffect(() => {
+    initialScrollPendingRef.current = true;
+    previousMessageCountRef.current = 0;
+    setIsNearBottom(true);
+  }, [sessionId]);
+
+  useEffect(() => {
     const previousMessageCount = previousMessageCountRef.current;
     const hasNewMessage = messages.length > previousMessageCount;
 
-    if (hasNewMessage && (isNearBottom || previousMessageCount === 0)) {
-      scrollToBottom(previousMessageCount > 0);
+    if (
+      hasNewMessage &&
+      previousMessageCount > 0 &&
+      isNearBottom &&
+      !initialScrollPendingRef.current
+    ) {
+      scrollToBottom(true);
     }
 
     previousMessageCountRef.current = messages.length;
@@ -582,6 +603,7 @@ export default function ChatScreen() {
             keyboardShouldPersistTaps="always"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             nestedScrollEnabled
+            onContentSizeChange={handleMessagesContentSizeChange}
             onScroll={handleMessagesScroll}
             onScrollBeginDrag={handleMessagesScrollBeginDrag}
             scrollEventThrottle={16}

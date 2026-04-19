@@ -12,13 +12,13 @@
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "eas:build:ios": "eas build -p ios",
-    "eas:build:android": "eas build -p android",
-    "eas:build:ios:preview": "eas build -p ios --profile preview --non-interactive",
-    "eas:build:android:preview": "eas build -p android --profile preview --non-interactive",
-    "eas:build:ios:production": "eas build -p ios --profile production --non-interactive",
-    "eas:build:android:production": "eas build -p android --profile production --non-interactive",
-    "eas:submit:ios:production": "eas submit -p ios --profile production --non-interactive"
+    "eas:build:ios": "npx eas build -p ios",
+    "eas:build:android": "npx eas build -p android",
+    "eas:build:ios:preview": "npx eas build -p ios --profile preview --non-interactive",
+    "eas:build:android:preview": "npx eas build -p android --profile preview --non-interactive",
+    "eas:build:ios:production": "npx eas build -p ios --profile production --non-interactive",
+    "eas:build:android:production": "npx eas build -p android --profile production --non-interactive",
+    "eas:submit:ios:production": "npx eas submit -p ios --profile production --non-interactive"
   },
   "engines": {
     "node": ">=20.19.4"

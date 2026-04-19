@@ -300,12 +300,21 @@ async def perform_web_search(query: str) -> dict[str, Any]:
                 if nested.get("Text") and nested.get("FirstURL"):
                     lines.append(f"- {nested['Text']} ({nested['FirstURL']})")
                     result_count += 1
-    context = "Web search results:\n" + "\n".join(lines) if lines else ""
+    context = (
+        f"Web search results (provider: DuckDuckGo Instant Answer, query: {clean_query}):\n"
+        + "\n".join(lines)
+        if lines
+        else ""
+    )
     return {
         "provider": "duckduckgo",
         "query": clean_query,
         "used": bool(context),
         "resultCount": result_count,
         "context": context,
-        "summary": f"{result_count} search result snippets attached to the prompt." if context else "No search results were returned for this query.",
+        "summary": (
+            f"{result_count} DuckDuckGo search result snippets attached to the prompt for query: {clean_query}."
+            if context
+            else f"No DuckDuckGo search results were returned for query: {clean_query}."
+        ),
     }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
 import httpx
@@ -14,6 +15,48 @@ from backend.models import ChatRequest
 
 def supports_openai_vision(model: str) -> bool:
     return any(token in model for token in OPENAI_VISION_MODELS)
+
+
+def build_runtime_context() -> dict[str, str]:
+    now_utc = datetime.now(timezone.utc)
+    iso_timestamp = now_utc.isoformat(timespec="seconds").replace("+00:00", "Z")
+    message = (
+        "Runtime context for this request:\n"
+        f"- Current server datetime (UTC): {iso_timestamp}\n"
+        f"- Current server date (UTC): {now_utc.date().isoformat()}\n"
+        "- Treat this runtime context as authoritative for all questions about the current date, year, time, or recency.\n"
+        "- If other model priors conflict with this runtime context, use the runtime context instead."
+    )
+    return {
+        "timestampUtc": iso_timestamp,
+        "dateUtc": now_utc.date().isoformat(),
+        "message": message,
+    }
+
+
+def build_search_guidance_message(search_debug: dict[str, Any]) -> str:
+    if not search_debug.get("enabled"):
+        return ""
+    summary = str(search_debug.get("summary") or "No web search summary available.")
+    provider = str(search_debug.get("provider") or "web search")
+    query = str(search_debug.get("query") or "")
+    if search_debug.get("used"):
+        return (
+            "Web search guidance:\n"
+            f"- Provider: {provider}\n"
+            f"- Query: {query or '[empty query]'}\n"
+            f"- Summary: {summary}\n"
+            "- Use the retrieved web search results as the primary source for recent or rapidly changing facts.\n"
+            "- If the search results contradict older model knowledge, trust the search results and explicitly mention uncertainty only when the results themselves are ambiguous."
+        )
+    return (
+        "Web search guidance:\n"
+        f"- Provider: {provider}\n"
+        f"- Query: {query or '[empty query]'}\n"
+        f"- Summary: {summary}\n"
+        "- No usable search results were attached, so do not pretend you fetched fresh facts.\n"
+        "- If the answer depends on current or post-training information, say that the request needs fresher sources instead of inventing recency."
+    )
 
 
 def append_multimodal_images(messages: list[dict[str, Any]], records: list[dict[str, Any]], is_openai: bool, model: str) -> list[dict[str, Any]]:
@@ -63,7 +106,10 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
     if has_image_attachments and not (is_openai and supports_openai_vision(forwarded_model)):
         raise HTTPException(status_code=400, detail=f'Model "{configured_model}" does not support image attachments. Switch to a vision-capable OpenAI model.')
 
-    chat_messages: list[dict[str, Any]] = []
+    runtime_context = build_runtime_context()
+    chat_messages: list[dict[str, Any]] = [
+        {"role": "system", "content": runtime_context["message"]}
+    ]
     if payload.systemPrompt:
         chat_messages.append({"role": "system", "content": payload.systemPrompt})
 
@@ -110,6 +156,10 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
                 "summary": "Web search was enabled, but no user message was available to search.",
             }
 
+    search_guidance = build_search_guidance_message(search_debug)
+    if search_guidance:
+        chat_messages.append({"role": "system", "content": search_guidance})
+
     for message in payload.messages:
         role = message.get("role")
         content = message.get("content")
@@ -124,6 +174,10 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
         "stream": False,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    search_debug["runtime"] = {
+        "timestampUtc": runtime_context["timestampUtc"],
+        "dateUtc": runtime_context["dateUtc"],
+    }
     return base_url, forwarded_model, headers, request_body, search_debug
 
 

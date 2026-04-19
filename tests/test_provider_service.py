@@ -15,7 +15,14 @@ async def _no_url_context(urls):
 
 
 async def _no_web_search(query):
-    return ''
+    return {
+        'provider': 'duckduckgo',
+        'query': query,
+        'used': False,
+        'resultCount': 0,
+        'context': '',
+        'summary': 'No search results.',
+    }
 
 
 def test_append_multimodal_images_adds_image_blocks_for_openai_vision():
@@ -45,7 +52,16 @@ def test_build_chat_request_includes_web_search_and_url_context(monkeypatch):
     monkeypatch.setattr(
         provider_service,
         'perform_web_search',
-        lambda query: _resolved('SEARCH CONTEXT'),
+        lambda query: _resolved(
+            {
+                'provider': 'duckduckgo',
+                'query': query,
+                'used': True,
+                'resultCount': 2,
+                'context': 'SEARCH CONTEXT',
+                'summary': '2 results attached.',
+            }
+        ),
     )
     monkeypatch.setenv('SYN_API_KEY', 'test-key')
     monkeypatch.setenv('SYN_CHAT_URL', 'https://example.com/chat')
@@ -56,13 +72,18 @@ def test_build_chat_request_includes_web_search_and_url_context(monkeypatch):
         ],
         webSearch=True,
     )
-    _, forwarded_model, _, body = asyncio.run(
+    _, forwarded_model, _, body, search_debug = asyncio.run(
         provider_service.build_chat_request(payload, None)
     )
     assert forwarded_model == 'hf:zai-org/GLM-4.7'
     system_messages = [m['content'] for m in body['messages'] if m['role'] == 'system']
+    assert any('Current server datetime (UTC)' in message for message in system_messages)
     assert any('URL CONTEXT' in message for message in system_messages)
     assert any('SEARCH CONTEXT' in message for message in system_messages)
+    assert any('Use the retrieved web search results as the primary source' in message for message in system_messages)
+    assert search_debug['used'] is True
+    assert 'runtime' in search_debug
+    assert search_debug['runtime']['timestampUtc'].endswith('Z')
 
 
 def test_build_chat_request_rejects_image_for_non_vision_model(monkeypatch):

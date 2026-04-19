@@ -110,6 +110,7 @@ export default function ChatScreen() {
   const [checking, setChecking] = useState(false);
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const deviceUi = useDeviceUi();
 
@@ -234,18 +235,29 @@ export default function ChatScreen() {
     router.push('/debug-storage' as any);
   };
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
+      scrollViewRef.current?.scrollToEnd({ animated });
     });
   };
 
   const handleMessagesContentSizeChange = () => {
-    scrollToBottom();
+    if (isNearBottom) {
+      scrollToBottom();
+    }
   };
 
   const handleMessagesLayout = () => {
-    scrollToBottom();
+    if (isNearBottom) {
+      scrollToBottom(false);
+    }
+  };
+
+  const handleMessagesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    setIsNearBottom(distanceFromBottom < 80);
   };
 
   const handleMessagesScrollBeginDrag = (
@@ -255,8 +267,10 @@ export default function ChatScreen() {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, attachments.length, headerCollapsed]);
+    if (isNearBottom) {
+      scrollToBottom();
+    }
+  }, [attachments.length, headerCollapsed, isNearBottom, messages.length]);
 
   if (!authChecked) {
     return null;
@@ -333,6 +347,9 @@ export default function ChatScreen() {
                   <Text style={styles.sessionText}>
                     Streaming: {streamingEnabled ? 'on' : 'off'}
                   </Text>
+                  <Text style={styles.sessionText}>
+                    Web search: {webSearchEnabled ? 'on' : 'off'}
+                  </Text>
                   <Text style={styles.status}>{statusText}</Text>
                 </>
               ) : (
@@ -347,6 +364,22 @@ export default function ChatScreen() {
                 >
                   <Text style={styles.statusButtonText}>
                     {checking ? 'Checking…' : 'Check backend'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryButton,
+                    webSearchEnabled && styles.secondaryButtonActive,
+                  ]}
+                  onPress={() => setWebSearchEnabled(!webSearchEnabled)}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      webSearchEnabled && styles.secondaryButtonTextActive,
+                    ]}
+                  >
+                    Search: {webSearchEnabled ? 'On' : 'Off'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -498,6 +531,7 @@ export default function ChatScreen() {
               keyboardDismissMode="interactive"
               onContentSizeChange={handleMessagesContentSizeChange}
               onLayout={handleMessagesLayout}
+              onScroll={handleMessagesScroll}
               onScrollBeginDrag={handleMessagesScrollBeginDrag}
               scrollEventThrottle={16}
             >
@@ -758,10 +792,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
   },
+  secondaryButtonActive: {
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
+  },
   secondaryButtonText: {
     color: '#f9fafb',
     fontSize: 14,
     fontWeight: '600',
+  },
+  secondaryButtonTextActive: {
+    color: '#0b1120',
+    fontWeight: '800',
   },
   noticeCard: {
     marginTop: 12,

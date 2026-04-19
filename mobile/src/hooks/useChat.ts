@@ -9,7 +9,7 @@ import {
 import { toAttachmentReferences } from '../lib/attachments';
 import { normalizeDeviceFileUri } from '../lib/devicePaths';
 import { loadLocalSessionSnapshot, saveLocalSessionSnapshot } from '../lib/localSessions';
-import { loadPreferences } from '../lib/preferences';
+import { loadPreferences, savePreferences } from '../lib/preferences';
 import {
   createSessionId,
   deriveSessionTitle,
@@ -219,6 +219,16 @@ export function UseChat(options: UseChatOptions = {}) {
       }
     };
   }, [initialized, isHydrating, isLoading, messages, persistState, sessionId]);
+
+  useEffect(() => {
+    if (!initialized) return;
+    savePreferences({
+      webSearchEnabled,
+      streamingEnabled,
+    }).catch((error) => {
+      console.warn('Failed to persist chat preferences', error);
+    });
+  }, [initialized, streamingEnabled, webSearchEnabled]);
 
   const updateAttachmentStatus = (
     attachmentId: string,

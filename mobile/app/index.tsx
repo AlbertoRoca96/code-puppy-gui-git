@@ -12,6 +12,7 @@ import {
   Keyboard,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -288,6 +289,41 @@ export default function ChatScreen() {
     previousMessageCountRef.current = messages.length;
   }, [isNearBottom, messages.length]);
 
+  const handleOpenCitation = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setStatusText(`Couldn't open citation: ${msg}`);
+    }
+  };
+
+  const renderCitationGroup = (
+    label: string,
+    citations: { url: string; title: string }[] | undefined
+  ) => {
+    if (!citations?.length) return null;
+    return (
+      <View style={styles.citationGroup}>
+        <Text style={styles.citationLabel}>{label}</Text>
+        {citations.map((citation) => (
+          <TouchableOpacity
+            key={`${label}_${citation.url}`}
+            style={styles.citationChip}
+            onPress={() => handleOpenCitation(citation.url)}
+          >
+            <Text style={styles.citationChipText} numberOfLines={2}>
+              {citation.title}
+            </Text>
+            <Text style={styles.citationUrlText} numberOfLines={1}>
+              {citation.url}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
+  };
+
   const renderMessageItem = ({ item }: { item: (typeof messages)[number] }) => (
     <View
       style={[
@@ -312,6 +348,10 @@ export default function ChatScreen() {
       >
         {item.content}
       </Text>
+      {item.role === 'assistant' ? renderCitationGroup('Sources', item.citations) : null}
+      {item.role === 'assistant'
+        ? renderCitationGroup('Fetched pages', item.fetchedPages)
+        : null}
     </View>
   );
 
@@ -987,6 +1027,35 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 12,
     fontWeight: '600',
+  },
+  citationGroup: {
+    marginTop: 10,
+    gap: 8,
+  },
+  citationLabel: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  citationChip: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#243041',
+    backgroundColor: '#08111f',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  citationChipText: {
+    color: '#bfdbfe',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  citationUrlText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 3,
   },
   userBubble: {
     alignSelf: 'flex-end',

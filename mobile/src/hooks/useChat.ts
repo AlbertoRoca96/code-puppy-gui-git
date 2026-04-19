@@ -17,6 +17,7 @@ import {
   loadSession,
   saveSession,
   SessionAttachment,
+  SessionCitation,
   SessionMessage,
   SessionSnapshot,
 } from '../lib/sessions';
@@ -27,6 +28,8 @@ export interface Message {
   content: string;
   timestamp: Date;
   attachments?: SessionAttachment[];
+  citations?: SessionCitation[];
+  fetchedPages?: SessionCitation[];
 }
 
 export interface FailureDebugInfo {
@@ -60,6 +63,8 @@ function toSessionMessages(messages: Message[]): SessionMessage[] {
     role: message.role,
     content: message.content,
     attachments: message.attachments || undefined,
+    citations: message.citations || undefined,
+    fetchedPages: message.fetchedPages || undefined,
   }));
 }
 
@@ -72,7 +77,18 @@ function toUiMessages(messages: SessionMessage[]): Message[] {
       content: message.content,
       timestamp: new Date(),
       attachments: message.attachments || [],
+      citations: message.citations || [],
+      fetchedPages: message.fetchedPages || [],
     }));
+}
+
+function toSessionCitations(citations?: SearchDebugInfo['sources']): SessionCitation[] {
+  return (citations || [])
+    .map((citation) => ({
+      url: String(citation.url || '').trim(),
+      title: String(citation.title || citation.url || '').trim(),
+    }))
+    .filter((citation) => citation.url);
 }
 
 function createFailureDebug(
@@ -382,10 +398,14 @@ export function UseChat(options: UseChatOptions = {}) {
         content: '',
         timestamp: new Date(),
         attachments: [],
+        citations: [],
+        fetchedPages: [],
       };
       setMessages([...messagesWithUser, streamingPlaceholder]);
 
       let finalAssistantText = '';
+      let finalAssistantCitations: SessionCitation[] = [];
+      let finalAssistantFetchedPages: SessionCitation[] = [];
       const controller = new AbortController();
       abortControllerRef.current = controller;
       setIsStreaming(streamingEnabled);
@@ -401,9 +421,15 @@ export function UseChat(options: UseChatOptions = {}) {
         });
         finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
         setLastSearchDebug(fallback.search || null);
+        const citations = toSessionCitations(fallback.search?.sources);
+        const fetchedPages = toSessionCitations(fallback.search?.fetchedPages);
+        finalAssistantCitations = citations;
+        finalAssistantFetchedPages = fetchedPages;
         setMessages((prev) =>
           prev.map((item) =>
-            item.id === assistantId ? { ...item, content: finalAssistantText } : item
+            item.id === assistantId
+              ? { ...item, content: finalAssistantText, citations, fetchedPages }
+              : item
           )
         );
       } else {
@@ -434,10 +460,14 @@ export function UseChat(options: UseChatOptions = {}) {
                   message || finalAssistantText || 'No response'
                 );
                 setLastSearchDebug(search || null);
+                const citations = toSessionCitations(search?.sources);
+                const fetchedPages = toSessionCitations(search?.fetchedPages);
+                finalAssistantCitations = citations;
+                finalAssistantFetchedPages = fetchedPages;
                 setMessages((prev) =>
                   prev.map((item) =>
                     item.id === assistantId
-                      ? { ...item, content: finalAssistantText }
+                      ? { ...item, content: finalAssistantText, citations, fetchedPages }
                       : item
                   )
                 );
@@ -461,9 +491,15 @@ export function UseChat(options: UseChatOptions = {}) {
           });
           finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
           setLastSearchDebug(fallback.search || null);
+          const citations = toSessionCitations(fallback.search?.sources);
+          const fetchedPages = toSessionCitations(fallback.search?.fetchedPages);
+          finalAssistantCitations = citations;
+          finalAssistantFetchedPages = fetchedPages;
           setMessages((prev) =>
             prev.map((item) =>
-              item.id === assistantId ? { ...item, content: finalAssistantText } : item
+              item.id === assistantId
+                ? { ...item, content: finalAssistantText, citations, fetchedPages }
+                : item
             )
           );
         }
@@ -474,6 +510,8 @@ export function UseChat(options: UseChatOptions = {}) {
         {
           ...streamingPlaceholder,
           content: sanitizeAssistantOutput(finalAssistantText || 'No response'),
+          citations: finalAssistantCitations,
+          fetchedPages: finalAssistantFetchedPages,
         },
       ];
       setMessages(finalMessages);

@@ -107,6 +107,11 @@ export interface ChatRequestInput {
   }[];
 }
 
+export interface CitationLink {
+  url: string;
+  title: string;
+}
+
 export interface SearchDebugInfo {
   enabled: boolean;
   provider?: string | null;
@@ -114,6 +119,13 @@ export interface SearchDebugInfo {
   query?: string | null;
   resultCount?: number;
   summary?: string | null;
+  runtime?: {
+    timestampUtc?: string;
+    dateUtc?: string;
+  };
+  sources?: CitationLink[];
+  fetchedPages?: CitationLink[];
+  shortCircuited?: boolean;
 }
 
 export interface ChatResponse {

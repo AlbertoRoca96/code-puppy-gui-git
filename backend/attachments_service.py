@@ -236,7 +236,7 @@ def build_attachment_context_from_records(records: list[dict[str, Any]]) -> str:
 
 
 def extract_urls_from_messages(messages: list[dict[str, Any]]) -> list[str]:
-    urls: list[str] = []
+    sources: list[dict[str, str]] = []
     for message in messages:
         content = message.get("content")
         if isinstance(content, str):
@@ -282,30 +282,30 @@ def normalize_duckduckgo_result_url(raw_url: str) -> str:
     return unescape(raw_url)
 
 
-def extract_instant_answer_results(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+def extract_instant_answer_results(data: dict[str, Any]) -> tuple[list[str], list[dict[str, str]]]:
     lines: list[str] = []
-    urls: list[str] = []
+    sources: list[dict[str, str]] = []
     abstract = str(data.get('AbstractText') or '').strip()
     abstract_url = str(data.get('AbstractURL') or '').strip()
     if abstract:
         suffix = f' ({abstract_url})' if abstract_url else ''
         lines.append(f'Abstract: {abstract}{suffix}')
         if abstract_url:
-            urls.append(abstract_url)
+            sources.append({'url': abstract_url, 'title': 'Abstract source'})
     for item in (data.get('RelatedTopics') or [])[:8]:
         if not isinstance(item, dict):
             continue
         if item.get('Text') and item.get('FirstURL'):
             lines.append(f"- {item['Text']} ({item['FirstURL']})")
-            urls.append(str(item['FirstURL']))
+            sources.append({'url': str(item['FirstURL']), 'title': str(item['Text'])[:160]})
         for nested in (item.get('Topics') or [])[:4]:
             if nested.get('Text') and nested.get('FirstURL'):
                 lines.append(f"- {nested['Text']} ({nested['FirstURL']})")
-                urls.append(str(nested['FirstURL']))
-    return lines, urls
+                sources.append({'url': str(nested['FirstURL']), 'title': str(nested['Text'])[:160]})
+    return lines, sources
 
 
-def extract_html_search_results(html: str) -> tuple[list[str], list[str]]:
+def extract_html_search_results(html: str) -> tuple[list[str], list[dict[str, str]]]:
     link_matches = DDG_RESULT_LINK_PATTERN.findall(html)
     snippet_matches = DDG_RESULT_SNIPPET_PATTERN.findall(html)
     lines: list[str] = []
@@ -326,15 +326,22 @@ def extract_html_search_results(html: str) -> tuple[list[str], list[str]]:
             line += f': {snippet}'
         line += f' ({url})'
         lines.append(line)
-        urls.append(url)
-    return lines, urls
+        sources.append({'url': url, 'title': (title or url)[:160]})
+    return lines, sources
 
 
-def dedupe_urls(urls: list[str], limit: int = 4) -> list[str]:
-    deduped: list[str] = []
-    for url in urls:
-        if url and url not in deduped:
-            deduped.append(url)
+def dedupe_sources(
+    sources: list[dict[str, str]],
+    limit: int = 4,
+) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for source in sources:
+        url = str(source.get('url') or '').strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped.append({'url': url, 'title': str(source.get('title') or url)[:160]})
         if len(deduped) >= limit:
             break
     return deduped
@@ -353,7 +360,7 @@ async def perform_web_search(query: str) -> dict[str, Any]:
         }
 
     lines: list[str] = []
-    result_urls: list[str] = []
+    result_sources: list[dict[str, str]] = []
     provider = 'duckduckgo-instant'
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
@@ -365,7 +372,7 @@ async def perform_web_search(query: str) -> dict[str, Any]:
                 headers={'User-Agent': 'CodePuppyBot/1.0'},
             )
             response.raise_for_status()
-            lines, result_urls = extract_instant_answer_results(response.json())
+            lines, result_sources = extract_instant_answer_results(response.json())
         except Exception as exc:
             instant_error = str(exc)
 
@@ -378,13 +385,15 @@ async def perform_web_search(query: str) -> dict[str, Any]:
                     headers={'User-Agent': 'CodePuppyBot/1.0'},
                 )
                 html_response.raise_for_status()
-                lines, result_urls = extract_html_search_results(html_response.text)
+                lines, result_sources = extract_html_search_results(html_response.text)
             except Exception as exc:
                 detail = instant_error or str(exc)
                 raise HTTPException(status_code=502, detail=f'Web search failed: {detail}') from exc
 
-    result_urls = dedupe_urls(result_urls, limit=3)
-    source_context = await fetch_url_context(result_urls) if result_urls else ''
+    result_sources = dedupe_sources(result_sources, limit=5)
+    fetched_pages = result_sources[:3]
+    fetched_urls = [source['url'] for source in fetched_pages]
+    source_context = await fetch_url_context(fetched_urls) if fetched_urls else ''
     context_sections: list[str] = []
     if lines:
         context_sections.append(
@@ -401,8 +410,10 @@ async def perform_web_search(query: str) -> dict[str, Any]:
         'resultCount': len(lines),
         'context': context,
         'summary': (
-            f"{len(lines)} {provider} result snippets attached, plus fetched excerpts from {len(result_urls)} linked pages, for query: {clean_query}."
+            f"{len(lines)} {provider} result snippets attached, plus fetched excerpts from {len(fetched_urls)} linked pages, for query: {clean_query}."
             if context
             else f'No DuckDuckGo search results were returned for query: {clean_query}.'
         ),
+        'sources': result_sources,
+        'fetchedPages': fetched_pages,
     }

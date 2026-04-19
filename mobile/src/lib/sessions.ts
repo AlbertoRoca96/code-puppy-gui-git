@@ -1,9 +1,16 @@
 import { apiCall } from './api';
 
+export interface SessionCitation {
+  url: string;
+  title: string;
+}
+
 export interface SessionMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   attachments?: SessionAttachment[];
+  citations?: SessionCitation[];
+  fetchedPages?: SessionCitation[];
 }
 
 export type AttachmentStatus =

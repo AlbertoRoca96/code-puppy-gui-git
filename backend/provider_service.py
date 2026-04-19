@@ -106,6 +106,8 @@ def build_runtime_short_circuit_response(payload: ChatRequest) -> dict[str, Any]
                 'timestampUtc': runtime_context['timestampUtc'],
                 'dateUtc': runtime_context['dateUtc'],
             },
+            'sources': [],
+            'fetchedPages': [],
             'shortCircuited': True,
         },
     }
@@ -207,6 +209,8 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
         "query": None,
         "resultCount": 0,
         "summary": "Web search disabled for this request.",
+        "sources": [],
+        "fetchedPages": [],
     }
     if payload.webSearch:
         latest_user_text = extract_latest_user_text(payload.messages)
@@ -219,6 +223,8 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
                 "query": search_result.get("query"),
                 "resultCount": int(search_result.get("resultCount") or 0),
                 "summary": str(search_result.get("summary") or ""),
+                "sources": list(search_result.get("sources") or []),
+                "fetchedPages": list(search_result.get("fetchedPages") or []),
             }
             search_context = str(search_result.get("context") or "")
             if search_context:
@@ -231,6 +237,8 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
                 "query": None,
                 "resultCount": 0,
                 "summary": "Web search was enabled, but no user message was available to search.",
+                "sources": [],
+                "fetchedPages": [],
             }
 
     search_guidance = build_search_guidance_message(search_debug)

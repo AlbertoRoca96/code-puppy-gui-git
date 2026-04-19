@@ -11,7 +11,7 @@ import {
   Keyboard,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  Pressable,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -112,6 +112,7 @@ export default function ChatScreen() {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const previousMessageCountRef = useRef(0);
   const deviceUi = useDeviceUi();
 
   useEffect(() => {
@@ -242,15 +243,12 @@ export default function ChatScreen() {
   };
 
   const handleMessagesContentSizeChange = () => {
-    if (isNearBottom) {
-      scrollToBottom();
-    }
+    // Intentionally empty. Auto-scroll is managed in a targeted effect so
+    // scrolling doesn't get hijacked by every layout/content recalculation.
   };
 
   const handleMessagesLayout = () => {
-    if (isNearBottom) {
-      scrollToBottom(false);
-    }
+    // Intentionally empty. Let the user scroll like a grown-up.
   };
 
   const handleMessagesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -267,10 +265,15 @@ export default function ChatScreen() {
   };
 
   useEffect(() => {
-    if (isNearBottom) {
-      scrollToBottom();
+    const previousMessageCount = previousMessageCountRef.current;
+    const hasNewMessage = messages.length > previousMessageCount;
+
+    if (hasNewMessage && (isNearBottom || previousMessageCount === 0)) {
+      scrollToBottom(previousMessageCount > 0);
     }
-  }, [attachments.length, headerCollapsed, isNearBottom, messages.length]);
+
+    previousMessageCountRef.current = messages.length;
+  }, [isNearBottom, messages.length]);
 
   if (!authChecked) {
     return null;
@@ -282,7 +285,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Pressable style={styles.pressableShell} onPress={Keyboard.dismiss}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
         <KeyboardAvoidingView
           style={[styles.container, deviceUi.isWeb && styles.webContainer]}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -527,8 +530,9 @@ export default function ChatScreen() {
               contentContainerStyle={
                 messages.length === 0 ? styles.emptyContainer : styles.messagesContent
               }
-              keyboardShouldPersistTaps="handled"
+              keyboardShouldPersistTaps="always"
               keyboardDismissMode="interactive"
+              nestedScrollEnabled
               onContentSizeChange={handleMessagesContentSizeChange}
               onLayout={handleMessagesLayout}
               onScroll={handleMessagesScroll}
@@ -667,7 +671,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      </Pressable>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }
@@ -677,11 +681,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: BG,
   },
-  pressableShell: {
-    flex: 1,
-  },
   container: {
     flex: 1,
+    minHeight: 0,
     backgroundColor: BG,
   },
   webContainer: {
@@ -904,6 +906,7 @@ const styles = StyleSheet.create({
   },
   chatWrapper: {
     flex: 1,
+    minHeight: 0,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
@@ -912,8 +915,10 @@ const styles = StyleSheet.create({
   },
   messages: {
     flex: 1,
+    minHeight: 0,
   },
   messagesContent: {
+    flexGrow: 1,
     paddingBottom: 20,
   },
   emptyContainer: {

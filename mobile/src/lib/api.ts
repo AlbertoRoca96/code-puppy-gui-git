@@ -1,7 +1,8 @@
 import { Platform } from 'react-native';
 
 import { getAccessToken, getValidAccessToken } from './auth';
-import { getApiBase } from './config';
+import { DEFAULT_API_BASE, getApiBaseCandidates } from './config';
+import { clearApiBaseOverride } from './preferences';
 
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
@@ -27,18 +28,45 @@ async function buildAuthHeaders(options: RequestInit = {}, forceRefresh = false)
   };
 }
 
-export async function apiCall(endpoint: string, options: RequestInit = {}): Promise<any> {
-  const url = `${await getApiBase()}${endpoint}`;
-  let response = await fetch(url, {
-    ...options,
-    headers: await buildAuthHeaders(options),
-  });
-  if (response.status === 401) {
-    response = await fetch(url, {
-      ...options,
-      headers: await buildAuthHeaders(options, true),
-    });
+async function fetchWithApiFallback(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const headers = await buildAuthHeaders(options);
+  const fallbackHeaders = await buildAuthHeaders(options, true);
+  const candidates = await getApiBaseCandidates();
+  let lastError: unknown = null;
+
+  for (const baseUrl of candidates) {
+    const url = `${baseUrl}${endpoint}`;
+    try {
+      let response = await fetch(url, {
+        ...options,
+        headers,
+      });
+      if (response.status === 401) {
+        response = await fetch(url, {
+          ...options,
+          headers: fallbackHeaders,
+        });
+      }
+      if (baseUrl === DEFAULT_API_BASE) {
+        await clearApiBaseOverride();
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (baseUrl === DEFAULT_API_BASE) {
+        throw error;
+      }
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error('Network request failed');
+}
+
+export async function apiCall(endpoint: string, options: RequestInit = {}): Promise<any> {
+  const response = await fetchWithApiFallback(endpoint, options);
   const text = await response.text();
   if (!response.ok) {
     try {
@@ -117,22 +145,42 @@ export async function streamMessage(
   } = {}
 ): Promise<void> {
   const accessToken = await getValidAccessToken(false);
-  const response = await fetch(`${await getApiBase()}/api/chat/stream`, {
-    method: 'POST',
-    signal: options.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    },
-    body: JSON.stringify({
-      messages: input.messages,
-      model: input.model || undefined,
-      systemPrompt: input.systemPrompt || undefined,
-      temperature: input.temperature ?? undefined,
-      attachments: input.attachments || undefined,
-      webSearch: input.webSearch || undefined,
-    }),
-  });
+  const candidates = await getApiBaseCandidates();
+  let response: Response | null = null;
+  let lastError: unknown = null;
+  for (const baseUrl of candidates) {
+    try {
+      response = await fetch(`${baseUrl}/api/chat/stream`, {
+        method: 'POST',
+        signal: options.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: input.messages,
+          model: input.model || undefined,
+          systemPrompt: input.systemPrompt || undefined,
+          temperature: input.temperature ?? undefined,
+          attachments: input.attachments || undefined,
+          webSearch: input.webSearch || undefined,
+        }),
+      });
+      if (baseUrl === DEFAULT_API_BASE) {
+        await clearApiBaseOverride();
+      }
+      break;
+    } catch (error) {
+      lastError = error;
+      response = null;
+      if (baseUrl === DEFAULT_API_BASE) {
+        throw error;
+      }
+    }
+  }
+  if (!response) {
+    throw lastError instanceof Error ? lastError : new Error('Streaming request failed');
+  }
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || `Streaming request failed (${response.status})`);
@@ -207,63 +255,88 @@ export async function uploadAttachment(
     onProgress?: (progressPct: number) => void;
   } = {}
 ): Promise<AttachmentUploadResponse> {
-  const apiBase = await getApiBase();
   const accessToken = await getAccessToken();
+  const candidates = await getApiBaseCandidates();
 
   return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${apiBase}/api/uploads`);
-    if (accessToken) {
-      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
-    }
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable && options.onProgress) {
-        options.onProgress(
-          Math.max(0, Math.min(100, (event.loaded / event.total) * 100))
-        );
+    let candidateIndex = 0;
+
+    const tryUpload = (apiBase: string) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${apiBase}/api/uploads`);
+      if (accessToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
       }
-    };
-    xhr.onerror = () => reject(new Error('Upload failed due to a network error.'));
-    xhr.onload = () => {
-      const text = xhr.responseText || '';
-      if (xhr.status < 200 || xhr.status >= 300) {
-        try {
-          const data = JSON.parse(text);
-          reject(new Error(data.error || data.message || data.detail || 'Upload failed'));
-        } catch {
-          reject(new Error(text || `Upload failed (${xhr.status})`));
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && options.onProgress) {
+          options.onProgress(
+            Math.max(0, Math.min(100, (event.loaded / event.total) * 100))
+          );
         }
+      };
+      xhr.onerror = async () => {
+        if (apiBase !== DEFAULT_API_BASE && candidateIndex < candidates.length - 1) {
+          candidateIndex += 1;
+          await clearApiBaseOverride();
+          tryUpload(candidates[candidateIndex]);
+          return;
+        }
+        reject(new Error('Upload failed due to a network error.'));
+      };
+      xhr.onload = async () => {
+        const text = xhr.responseText || '';
+        if (xhr.status < 200 || xhr.status >= 300) {
+          if (apiBase !== DEFAULT_API_BASE && candidateIndex < candidates.length - 1) {
+            candidateIndex += 1;
+            await clearApiBaseOverride();
+            tryUpload(candidates[candidateIndex]);
+            return;
+          }
+          try {
+            const data = JSON.parse(text);
+            reject(
+              new Error(data.error || data.message || data.detail || 'Upload failed')
+            );
+          } catch {
+            reject(new Error(text || `Upload failed (${xhr.status})`));
+          }
+          return;
+        }
+        if (apiBase === DEFAULT_API_BASE) {
+          await clearApiBaseOverride();
+        }
+        try {
+          resolve(JSON.parse(text) as AttachmentUploadResponse);
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      const formData = new FormData();
+      formData.append('kind', params.kind);
+      if (Platform.OS === 'web') {
+        fetch(params.uri)
+          .then((response) => response.blob())
+          .then((blob) => {
+            const file = new File([blob], params.name, {
+              type: params.mimeType || blob.type || 'application/octet-stream',
+            });
+            formData.append('file', file);
+            xhr.send(formData);
+          })
+          .catch(reject);
         return;
       }
-      try {
-        resolve(JSON.parse(text) as AttachmentUploadResponse);
-      } catch (error) {
-        reject(error);
-      }
+
+      formData.append('file', {
+        uri: params.uri,
+        name: params.name,
+        type: params.mimeType || 'application/octet-stream',
+      } as any);
+      xhr.send(formData);
     };
 
-    const formData = new FormData();
-    formData.append('kind', params.kind);
-    if (Platform.OS === 'web') {
-      fetch(params.uri)
-        .then((response) => response.blob())
-        .then((blob) => {
-          const file = new File([blob], params.name, {
-            type: params.mimeType || blob.type || 'application/octet-stream',
-          });
-          formData.append('file', file);
-          xhr.send(formData);
-        })
-        .catch(reject);
-      return;
-    }
-
-    formData.append('file', {
-      uri: params.uri,
-      name: params.name,
-      type: params.mimeType || 'application/octet-stream',
-    } as any);
-    xhr.send(formData);
+    tryUpload(candidates[0] || DEFAULT_API_BASE);
   });
 }
 

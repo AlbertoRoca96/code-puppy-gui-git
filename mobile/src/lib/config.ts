@@ -22,6 +22,15 @@ export async function getApiBase(): Promise<string> {
   return (prefs.apiBaseOverride || '').trim() || DEFAULT_API_BASE;
 }
 
+export async function getApiBaseCandidates(): Promise<string[]> {
+  const prefs = await loadPreferences();
+  const override = (prefs.apiBaseOverride || '').trim();
+  if (override && override !== DEFAULT_API_BASE) {
+    return [override, DEFAULT_API_BASE];
+  }
+  return [DEFAULT_API_BASE];
+}
+
 export function getWebAuthCallbackUrl(): string | undefined {
   if (typeof window === 'undefined' || !window.location?.origin) {
     return undefined;

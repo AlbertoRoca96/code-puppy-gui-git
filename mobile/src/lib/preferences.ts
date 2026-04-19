@@ -25,3 +25,12 @@ export async function savePreferences(next: AppPreferences): Promise<void> {
 export async function clearPreferences(): Promise<void> {
   await deletePersistentItem(PREFS_KEY);
 }
+
+export async function clearApiBaseOverride(): Promise<void> {
+  const prefs = await loadPreferences();
+  if (!prefs.apiBaseOverride) return;
+  await savePreferences({
+    ...prefs,
+    apiBaseOverride: '',
+  });
+}

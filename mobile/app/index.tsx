@@ -12,7 +12,6 @@ import {
   Keyboard,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -287,7 +286,7 @@ export default function ChatScreen() {
         </View>
       ) : null}
       <Text
-        selectable
+        selectable={Platform.OS !== 'android'}
         style={item.role === 'user' ? styles.userText : styles.assistantText}
       >
         {item.content}
@@ -324,364 +323,359 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <KeyboardAvoidingView
-          style={[styles.container, deviceUi.isWeb && styles.webContainer]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 16}
-        >
-          <View style={[styles.headerWrapper, deviceUi.isWide && styles.webShell]}>
-            <View style={styles.headerTopRow}>
+      <KeyboardAvoidingView
+        style={[styles.container, deviceUi.isWeb && styles.webContainer]}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 16}
+      >
+        <View style={[styles.headerWrapper, deviceUi.isWide && styles.webShell]}>
+          <View style={styles.headerTopRow}>
+            <TouchableOpacity
+              style={styles.headerPill}
+              onPress={() =>
+                router.push(`/sessions?sessionId=${encodeURIComponent(sessionId)}` as any)
+              }
+            >
+              <Text style={styles.headerPillText}>Chats</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerPill} onPress={handleNewChat}>
+              <Text style={styles.headerPillText}>New chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerPill} onPress={handleSignOut}>
+              <Text style={styles.headerPillText}>Sign out</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={styles.headerCard}
+            onLongPress={handleHeaderLongPress}
+            activeOpacity={0.95}
+          >
+            <View style={styles.headerTitleRow}>
+              <View style={styles.headerTitleCopy}>
+                <Text style={styles.title}>Code PuppyChat</Text>
+                {!headerCollapsed ? (
+                  <Text style={styles.subtitle}>
+                    Selectable models, persistent sessions, and real file uploads.
+                  </Text>
+                ) : null}
+                {currentUserEmail ? (
+                  <Text style={styles.subtitle}>Signed in as {currentUserEmail}</Text>
+                ) : null}
+              </View>
               <TouchableOpacity
-                style={styles.headerPill}
-                onPress={() =>
-                  router.push(
-                    `/sessions?sessionId=${encodeURIComponent(sessionId)}` as any
-                  )
-                }
+                style={styles.collapseButton}
+                onPress={() => setHeaderCollapsed((prev) => !prev)}
               >
-                <Text style={styles.headerPillText}>Chats</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerPill} onPress={handleNewChat}>
-                <Text style={styles.headerPillText}>New chat</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerPill} onPress={handleSignOut}>
-                <Text style={styles.headerPillText}>Sign out</Text>
+                <Text style={styles.collapseButtonText}>
+                  {headerCollapsed ? 'Expand' : 'Minimize'}
+                </Text>
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={styles.headerCard}
-              onLongPress={handleHeaderLongPress}
-              activeOpacity={0.95}
-            >
-              <View style={styles.headerTitleRow}>
-                <View style={styles.headerTitleCopy}>
-                  <Text style={styles.title}>Code PuppyChat</Text>
-                  {!headerCollapsed ? (
-                    <Text style={styles.subtitle}>
-                      Selectable models, persistent sessions, and real file uploads.
-                    </Text>
-                  ) : null}
-                  {currentUserEmail ? (
-                    <Text style={styles.subtitle}>Signed in as {currentUserEmail}</Text>
-                  ) : null}
-                </View>
-                <TouchableOpacity
-                  style={styles.collapseButton}
-                  onPress={() => setHeaderCollapsed((prev) => !prev)}
-                >
-                  <Text style={styles.collapseButtonText}>
-                    {headerCollapsed ? 'Expand' : 'Minimize'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {!headerCollapsed ? (
-                <>
-                  <Text style={styles.sessionText}>Session: {sessionId}</Text>
-                  <Text style={styles.sessionText}>Title: {title}</Text>
-                  <Text style={styles.sessionText}>Model: {model}</Text>
-                  <Text style={styles.sessionText}>Preset: {presetId}</Text>
-                  <Text style={styles.sessionText}>
-                    Messages: {messages.length}/{maxMessagesPerSession}
-                  </Text>
-                  <Text style={styles.sessionText}>
-                    Streaming: {streamingEnabled ? 'on' : 'off'}
-                  </Text>
-                  <Text style={styles.sessionText}>
-                    Web search: {webSearchEnabled ? 'on' : 'off'}
-                  </Text>
-                  {lastSearchDebug ? (
-                    <Text style={styles.sessionText}>
-                      Search debug: {lastSearchDebug.used ? 'used' : 'not used'}
-                      {lastSearchDebug.resultCount
-                        ? ` · ${lastSearchDebug.resultCount} results`
-                        : ''}
-                      {lastSearchDebug.provider ? ` · ${lastSearchDebug.provider}` : ''}
-                    </Text>
-                  ) : null}
-                  {lastSearchDebug?.summary ? (
-                    <Text style={styles.sessionText}>{lastSearchDebug.summary}</Text>
-                  ) : null}
-                  <Text style={styles.status}>{statusText}</Text>
-                </>
-              ) : (
+            {!headerCollapsed ? (
+              <>
+                <Text style={styles.sessionText}>Session: {sessionId}</Text>
                 <Text style={styles.sessionText}>Title: {title}</Text>
-              )}
-
-              <View style={styles.headerButtonRow}>
-                <TouchableOpacity
-                  style={styles.statusButton}
-                  onPress={handleCheckHealth}
-                  disabled={checking}
-                >
-                  <Text style={styles.statusButtonText}>
-                    {checking ? 'Checking…' : 'Check backend'}
+                <Text style={styles.sessionText}>Model: {model}</Text>
+                <Text style={styles.sessionText}>Preset: {presetId}</Text>
+                <Text style={styles.sessionText}>
+                  Messages: {messages.length}/{maxMessagesPerSession}
+                </Text>
+                <Text style={styles.sessionText}>
+                  Streaming: {streamingEnabled ? 'on' : 'off'}
+                </Text>
+                <Text style={styles.sessionText}>
+                  Web search: {webSearchEnabled ? 'on' : 'off'}
+                </Text>
+                {lastSearchDebug ? (
+                  <Text style={styles.sessionText}>
+                    Search debug: {lastSearchDebug.used ? 'used' : 'not used'}
+                    {lastSearchDebug.resultCount
+                      ? ` · ${lastSearchDebug.resultCount} results`
+                      : ''}
+                    {lastSearchDebug.provider ? ` · ${lastSearchDebug.provider}` : ''}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                ) : null}
+                {lastSearchDebug?.summary ? (
+                  <Text style={styles.sessionText}>{lastSearchDebug.summary}</Text>
+                ) : null}
+                <Text style={styles.status}>{statusText}</Text>
+              </>
+            ) : (
+              <Text style={styles.sessionText}>Title: {title}</Text>
+            )}
+
+            <View style={styles.headerButtonRow}>
+              <TouchableOpacity
+                style={styles.statusButton}
+                onPress={handleCheckHealth}
+                disabled={checking}
+              >
+                <Text style={styles.statusButtonText}>
+                  {checking ? 'Checking…' : 'Check backend'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.secondaryButton,
+                  webSearchEnabled && styles.secondaryButtonActive,
+                ]}
+                onPress={() => setWebSearchEnabled(!webSearchEnabled)}
+              >
+                <Text
                   style={[
-                    styles.secondaryButton,
-                    webSearchEnabled && styles.secondaryButtonActive,
+                    styles.secondaryButtonText,
+                    webSearchEnabled && styles.secondaryButtonTextActive,
                   ]}
+                >
+                  Search: {webSearchEnabled ? 'On' : 'Off'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => setShowModelControls((prev) => !prev)}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {showModelControls ? 'Hide controls' : 'Models & tools'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {!headerCollapsed && rolloverNotice ? (
+              <View style={styles.noticeCard}>
+                <View style={styles.debugHeader}>
+                  <Text style={styles.noticeTitle}>Session rollover</Text>
+                  <TouchableOpacity onPress={() => setRolloverNotice(null)}>
+                    <Text style={styles.debugDismiss}>Dismiss</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.noticeText}>{rolloverNotice}</Text>
+              </View>
+            ) : null}
+
+            {!headerCollapsed && failureDebug ? (
+              <View style={styles.debugCard}>
+                <View style={styles.debugHeader}>
+                  <Text style={styles.debugTitle}>Failure debug</Text>
+                  <TouchableOpacity onPress={clearFailureDebug}>
+                    <Text style={styles.debugDismiss}>Dismiss</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.debugText}>
+                  [{failureDebug.stage}] {failureDebug.message}
+                </Text>
+                <Text style={styles.debugText}>{failureDebug.timestamp}</Text>
+                {failureDebug.details.map((detail, index) => (
+                  <Text
+                    key={`${failureDebug.timestamp}_${index}`}
+                    style={styles.debugDetail}
+                  >
+                    {detail}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {!headerCollapsed && showModelControls && (
+              <View style={styles.controlsCard}>
+                <Text style={styles.controlLabel}>Model</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.optionRow}
+                >
+                  {MODEL_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option}
+                      style={[
+                        styles.optionChip,
+                        model === option && styles.optionChipActive,
+                      ]}
+                      onPress={() => setModel(option)}
+                    >
+                      <Text
+                        style={[
+                          styles.optionChipText,
+                          model === option && styles.optionChipTextActive,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.controlLabel}>Preset</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.optionRow}
+                >
+                  {PRESET_OPTIONS.map((option) => (
+                    <TouchableOpacity
+                      key={option.id}
+                      style={[
+                        styles.optionChip,
+                        presetId === option.id && styles.optionChipActive,
+                      ]}
+                      onPress={() => applyPreset(option.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.optionChipText,
+                          presetId === option.id && styles.optionChipTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={styles.controlLabel}>System prompt</Text>
+                <TextInput
+                  style={styles.promptInput}
+                  multiline
+                  value={systemPrompt}
+                  onChangeText={setSystemPrompt}
+                  placeholder="How should Code Puppy think?"
+                  placeholderTextColor="#6b7280"
+                />
+                <Text style={styles.controlLabel}>Web search</Text>
+                <TouchableOpacity
+                  style={[styles.optionChip, webSearchEnabled && styles.optionChipActive]}
                   onPress={() => setWebSearchEnabled(!webSearchEnabled)}
                 >
                   <Text
                     style={[
-                      styles.secondaryButtonText,
-                      webSearchEnabled && styles.secondaryButtonTextActive,
+                      styles.optionChipText,
+                      webSearchEnabled && styles.optionChipTextActive,
                     ]}
                   >
-                    Search: {webSearchEnabled ? 'On' : 'Off'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.secondaryButton}
-                  onPress={() => setShowModelControls((prev) => !prev)}
-                >
-                  <Text style={styles.secondaryButtonText}>
-                    {showModelControls ? 'Hide controls' : 'Models & tools'}
+                    {webSearchEnabled ? 'Enabled' : 'Disabled'}
                   </Text>
                 </TouchableOpacity>
               </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-              {!headerCollapsed && rolloverNotice ? (
-                <View style={styles.noticeCard}>
-                  <View style={styles.debugHeader}>
-                    <Text style={styles.noticeTitle}>Session rollover</Text>
-                    <TouchableOpacity onPress={() => setRolloverNotice(null)}>
-                      <Text style={styles.debugDismiss}>Dismiss</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.noticeText}>{rolloverNotice}</Text>
-                </View>
-              ) : null}
+        <View
+          style={[
+            styles.chatWrapper,
+            deviceUi.isWide && styles.webShell,
+            deviceUi.isWide && styles.webChatWrapper,
+          ]}
+        >
+          <FlatList
+            ref={messageListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessageItem}
+            style={styles.messages}
+            contentContainerStyle={
+              messages.length === 0 ? styles.messagesContentEmpty : styles.messagesContent
+            }
+            ListEmptyComponent={renderMessagesEmpty}
+            ListFooterComponent={renderMessagesFooter}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            nestedScrollEnabled
+            onScroll={handleMessagesScroll}
+            onScrollBeginDrag={handleMessagesScrollBeginDrag}
+            scrollEventThrottle={16}
+          />
+        </View>
 
-              {!headerCollapsed && failureDebug ? (
-                <View style={styles.debugCard}>
-                  <View style={styles.debugHeader}>
-                    <Text style={styles.debugTitle}>Failure debug</Text>
-                    <TouchableOpacity onPress={clearFailureDebug}>
-                      <Text style={styles.debugDismiss}>Dismiss</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.debugText}>
-                    [{failureDebug.stage}] {failureDebug.message}
-                  </Text>
-                  <Text style={styles.debugText}>{failureDebug.timestamp}</Text>
-                  {failureDebug.details.map((detail, index) => (
-                    <Text
-                      key={`${failureDebug.timestamp}_${index}`}
-                      style={styles.debugDetail}
-                    >
-                      {detail}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
+        <View
+          style={[
+            styles.footer,
+            deviceUi.isWide && styles.webShell,
+            deviceUi.isWide && styles.webFooter,
+          ]}
+        >
+          <View style={styles.attachRow}>
+            <TouchableOpacity style={styles.attachButton} onPress={handlePickFile}>
+              <Text style={styles.attachButtonText}>+ File</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.attachButton} onPress={handlePickPhoto}>
+              <Text style={styles.attachButtonText}>+ Photo</Text>
+            </TouchableOpacity>
+          </View>
 
-              {!headerCollapsed && showModelControls && (
-                <View style={styles.controlsCard}>
-                  <Text style={styles.controlLabel}>Model</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.optionRow}
-                  >
-                    {MODEL_OPTIONS.map((option) => (
-                      <TouchableOpacity
-                        key={option}
-                        style={[
-                          styles.optionChip,
-                          model === option && styles.optionChipActive,
-                        ]}
-                        onPress={() => setModel(option)}
-                      >
-                        <Text
-                          style={[
-                            styles.optionChipText,
-                            model === option && styles.optionChipTextActive,
-                          ]}
-                        >
-                          {option}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
+          {attachments.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipsRow}
+            >
+              {attachments.map((attachment) => {
+                const statusLabel =
+                  attachment.status === 'uploading'
+                    ? `uploading ${Math.round(attachment.progressPct || 0)}%`
+                    : attachment.status === 'retrying'
+                      ? `retrying ${Math.round(attachment.progressPct || 0)}%`
+                      : attachment.status === 'uploaded'
+                        ? 'sent'
+                        : attachment.status === 'error'
+                          ? 'failed'
+                          : 'queued';
 
-                  <Text style={styles.controlLabel}>Preset</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.optionRow}
-                  >
-                    {PRESET_OPTIONS.map((option) => (
-                      <TouchableOpacity
-                        key={option.id}
-                        style={[
-                          styles.optionChip,
-                          presetId === option.id && styles.optionChipActive,
-                        ]}
-                        onPress={() => applyPreset(option.id)}
-                      >
-                        <Text
-                          style={[
-                            styles.optionChipText,
-                            presetId === option.id && styles.optionChipTextActive,
-                          ]}
-                        >
-                          {option.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-
-                  <Text style={styles.controlLabel}>System prompt</Text>
-                  <TextInput
-                    style={styles.promptInput}
-                    multiline
-                    value={systemPrompt}
-                    onChangeText={setSystemPrompt}
-                    placeholder="How should Code Puppy think?"
-                    placeholderTextColor="#6b7280"
-                  />
-                  <Text style={styles.controlLabel}>Web search</Text>
+                return (
                   <TouchableOpacity
-                    style={[
-                      styles.optionChip,
-                      webSearchEnabled && styles.optionChipActive,
-                    ]}
-                    onPress={() => setWebSearchEnabled(!webSearchEnabled)}
+                    key={attachment.id}
+                    style={styles.attachmentChip}
+                    onPress={() => removeAttachment(attachment.id)}
                   >
-                    <Text
-                      style={[
-                        styles.optionChipText,
-                        webSearchEnabled && styles.optionChipTextActive,
-                      ]}
-                    >
-                      {webSearchEnabled ? 'Enabled' : 'Disabled'}
+                    <Text style={styles.attachmentChipText}>
+                      {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name} ·{' '}
+                      {statusLabel} ×
                     </Text>
                   </TouchableOpacity>
-                </View>
-              )}
+                );
+              })}
+            </ScrollView>
+          )}
+
+          <TextInput
+            style={styles.input}
+            placeholder="Enter a coding task"
+            placeholderTextColor="#6b7280"
+            value={input}
+            onChangeText={setInput}
+            editable={!isLoading && !isHydrating}
+            multiline
+            textAlignVertical="top"
+            returnKeyType="default"
+            blurOnSubmit={false}
+            selectionColor={ACCENT}
+            cursorColor={ACCENT}
+            onFocus={() => setHeaderCollapsed(true)}
+          />
+          {isStreaming ? (
+            <TouchableOpacity style={styles.cancelButton} onPress={cancelStreaming}>
+              <Text style={styles.cancelButtonText}>Stop streaming</Text>
             </TouchableOpacity>
-          </View>
-
-          <View
+          ) : null}
+          <TouchableOpacity
             style={[
-              styles.chatWrapper,
-              deviceUi.isWide && styles.webShell,
-              deviceUi.isWide && styles.webChatWrapper,
+              styles.sendButton,
+              (!input.trim() || isLoading || isHydrating) && styles.sendButtonDisabled,
             ]}
+            onPress={handleSend}
+            disabled={!input.trim() || isLoading || isHydrating}
           >
-            <FlatList
-              ref={messageListRef}
-              data={messages}
-              keyExtractor={(item) => item.id}
-              renderItem={renderMessageItem}
-              style={styles.messages}
-              contentContainerStyle={styles.messagesContent}
-              ListEmptyComponent={renderMessagesEmpty}
-              ListFooterComponent={renderMessagesFooter}
-              keyboardShouldPersistTaps="always"
-              keyboardDismissMode="interactive"
-              nestedScrollEnabled
-              onScroll={handleMessagesScroll}
-              onScrollBeginDrag={handleMessagesScrollBeginDrag}
-              scrollEventThrottle={16}
-            />
-          </View>
-
-          <View
-            style={[
-              styles.footer,
-              deviceUi.isWide && styles.webShell,
-              deviceUi.isWide && styles.webFooter,
-            ]}
-          >
-            <View style={styles.attachRow}>
-              <TouchableOpacity style={styles.attachButton} onPress={handlePickFile}>
-                <Text style={styles.attachButtonText}>+ File</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.attachButton} onPress={handlePickPhoto}>
-                <Text style={styles.attachButtonText}>+ Photo</Text>
-              </TouchableOpacity>
-            </View>
-
-            {attachments.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipsRow}
-              >
-                {attachments.map((attachment) => {
-                  const statusLabel =
-                    attachment.status === 'uploading'
-                      ? `uploading ${Math.round(attachment.progressPct || 0)}%`
-                      : attachment.status === 'retrying'
-                        ? `retrying ${Math.round(attachment.progressPct || 0)}%`
-                        : attachment.status === 'uploaded'
-                          ? 'sent'
-                          : attachment.status === 'error'
-                            ? 'failed'
-                            : 'queued';
-
-                  return (
-                    <TouchableOpacity
-                      key={attachment.id}
-                      style={styles.attachmentChip}
-                      onPress={() => removeAttachment(attachment.id)}
-                    >
-                      <Text style={styles.attachmentChipText}>
-                        {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name} ·{' '}
-                        {statusLabel} ×
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )}
-
-            <TextInput
-              style={styles.input}
-              placeholder="Enter a coding task"
-              placeholderTextColor="#6b7280"
-              value={input}
-              onChangeText={setInput}
-              editable={!isLoading && !isHydrating}
-              multiline
-              textAlignVertical="top"
-              returnKeyType="default"
-              blurOnSubmit={false}
-              selectionColor={ACCENT}
-              cursorColor={ACCENT}
-              onFocus={() => setHeaderCollapsed(true)}
-            />
-            {isStreaming ? (
-              <TouchableOpacity style={styles.cancelButton} onPress={cancelStreaming}>
-                <Text style={styles.cancelButtonText}>Stop streaming</Text>
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!input.trim() || isLoading || isHydrating) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={!input.trim() || isLoading || isHydrating}
-            >
-              <Text style={styles.sendText}>
-                {isHydrating
-                  ? 'Loading history…'
-                  : isLoading
-                    ? 'Uploading snacks & summoning puppy…'
-                    : 'Send to Code Puppy'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
+            <Text style={styles.sendText}>
+              {isHydrating
+                ? 'Loading history…'
+                : isLoading
+                  ? 'Uploading snacks & summoning puppy…'
+                  : 'Send to Code Puppy'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -928,6 +922,9 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   messagesContent: {
+    paddingBottom: 20,
+  },
+  messagesContentEmpty: {
     flexGrow: 1,
     paddingBottom: 20,
   },

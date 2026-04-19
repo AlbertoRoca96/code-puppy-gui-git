@@ -466,6 +466,7 @@ export default function ChatScreen() {
 
           <TouchableOpacity
             style={styles.headerCard}
+            onPress={Keyboard.dismiss}
             onLongPress={handleHeaderLongPress}
             activeOpacity={0.95}
           >
@@ -697,7 +698,7 @@ export default function ChatScreen() {
             }
             ListEmptyComponent={renderMessagesEmpty}
             ListFooterComponent={renderMessagesFooter}
-            keyboardShouldPersistTaps="always"
+            keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             nestedScrollEnabled
             onContentSizeChange={handleMessagesContentSizeChange}
@@ -727,6 +728,7 @@ export default function ChatScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               style={styles.chipsRow}
             >
               {attachments.map((attachment) => {

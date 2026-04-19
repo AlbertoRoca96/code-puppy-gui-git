@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -28,14 +28,22 @@ export default function SessionsScreen() {
   const currentSessionId = typeof params.sessionId === 'string' ? params.sessionId : '';
   const [sessions, setSessions] = useState<MergedSessionSummary[]>([]);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [query]);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
       const [localIndex, remoteItems] = await Promise.all([
         loadLocalSessionIndex(),
-        listSessions(),
+        listSessions(50, debouncedQuery),
       ]);
       const merged = mergeLocalAndRemoteSessions(localIndex, remoteItems);
       setSessions(merged);
@@ -45,7 +53,7 @@ export default function SessionsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [debouncedQuery]);
 
   useFocusEffect(
     useCallback(() => {
@@ -82,15 +90,7 @@ export default function SessionsScreen() {
     [load]
   );
 
-  const filteredSessions = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return sessions;
-    return sessions.filter((session) =>
-      [session.title, session.sessionId]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(term))
-    );
-  }, [query, sessions]);
+  const filteredSessions = useMemo(() => sessions, [sessions]);
 
   return (
     <AppShell
@@ -109,6 +109,9 @@ export default function SessionsScreen() {
         placeholder="Search chats"
         placeholderTextColor="#6b7280"
       />
+      {query !== debouncedQuery ? (
+        <Text style={styles.searchHint}>Searching…</Text>
+      ) : null}
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -136,8 +139,7 @@ export default function SessionsScreen() {
                       ? ' • local only'
                       : item.source === 'both'
                         ? ' • synced'
-                        : ''}
-                    {' '}
+                        : ''}{' '}
                     • {new Date(item.updatedAt * 1000).toLocaleString()}
                   </Text>
                 </TouchableOpacity>
@@ -187,6 +189,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#020617',
     color: '#f9fafb',
     fontSize: 14,
+  },
+  searchHint: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: -4,
+    marginBottom: 4,
   },
   listContent: {
     paddingBottom: 24,

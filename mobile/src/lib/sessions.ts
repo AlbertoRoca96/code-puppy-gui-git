@@ -23,6 +23,7 @@ export interface SessionAttachment {
   url?: string | null;
   size?: number | null;
   status?: AttachmentStatus;
+  progressPct?: number | null;
 }
 
 export interface SessionSummary {
@@ -44,8 +45,11 @@ export interface SessionSnapshot {
   model?: string | null;
 }
 
-export async function listSessions(limit = 50): Promise<SessionSummary[]> {
-  const data = await apiCall(`/api/sessions?limit=${limit}`, { method: 'GET' });
+export async function listSessions(limit = 50, query = ''): Promise<SessionSummary[]> {
+  const data = await apiCall(
+    `/api/sessions?limit=${limit}&query=${encodeURIComponent(query)}`,
+    { method: 'GET' }
+  );
   return Array.isArray(data.sessions) ? data.sessions : [];
 }
 
@@ -65,7 +69,9 @@ export async function saveSession(
   });
 }
 
-export async function deleteRemoteSession(sessionId: string): Promise<{ status: string }> {
+export async function deleteRemoteSession(
+  sessionId: string
+): Promise<{ status: string }> {
   return apiCall(`/api/session/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   });

@@ -1,8 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ScrollView, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  ScrollView,
+  Platform,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { loadLocalSessionIndex, loadLocalSessionSnapshot, LocalSessionIndexEntry } from '../src/lib/localSessions';
+import {
+  loadLocalSessionIndex,
+  loadLocalSessionSnapshot,
+  LocalSessionIndexEntry,
+} from '../src/lib/localSessions';
 
 const BG = '#020617';
 const CARD_BG = '#020617';
@@ -69,7 +81,8 @@ export default function DebugStorageScreen() {
                 >
                   <Text style={styles.rowTitle}>{item.title || 'New chat'}</Text>
                   <Text style={styles.rowMeta}>
-                    {item.messageCount} msgs • {new Date(item.updatedAt * 1000).toLocaleString()}
+                    {item.messageCount} msgs •{' '}
+                    {new Date(item.updatedAt * 1000).toLocaleString()}
                   </Text>
                   <Text style={styles.rowId}>{item.sessionId}</Text>
                 </TouchableOpacity>
@@ -85,7 +98,10 @@ export default function DebugStorageScreen() {
 
         <View style={styles.rightPane}>
           <Text style={styles.sectionTitle}>Snapshot JSON</Text>
-          <ScrollView style={styles.jsonScroll} contentContainerStyle={styles.jsonContent}>
+          <ScrollView
+            style={styles.jsonScroll}
+            contentContainerStyle={styles.jsonContent}
+          >
             <Text style={styles.jsonText} selectable>
               {selectedJson || 'Tap a session to inspect its local snapshot.'}
             </Text>
@@ -189,7 +205,11 @@ const styles = StyleSheet.create({
   },
   jsonText: {
     color: '#e5e7eb',
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontFamily: Platform.select({
+      ios: 'Menlo',
+      android: 'monospace',
+      default: 'monospace',
+    }),
     fontSize: 11,
   },
 });

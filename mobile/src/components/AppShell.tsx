@@ -1,6 +1,13 @@
 import React from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';

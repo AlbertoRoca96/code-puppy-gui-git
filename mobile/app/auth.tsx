@@ -51,7 +51,9 @@ export default function AuthScreen() {
       }
       if (mode === 'reset') {
         await sendPasswordResetEmail(cleanEmail);
-        setNotice('Password reset email sent. Check your inbox like a responsible adult.');
+        setNotice(
+          'Password reset email sent. Check your inbox like a responsible adult.'
+        );
         return;
       }
 
@@ -159,7 +161,14 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: BG },
-  container: { flex: 1, justifyContent: 'center', padding: 20, width: '100%', maxWidth: 760, alignSelf: 'center' },
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
+  },
   card: { backgroundColor: CARD, borderRadius: 20, padding: 20, gap: 12 },
   title: { color: TEXT, fontSize: 28, fontWeight: '800' },
   subtitle: { color: MUTED, fontSize: 14, lineHeight: 20 },
@@ -167,10 +176,21 @@ const styles = StyleSheet.create({
   toggle: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#111827' },
   toggleActive: { backgroundColor: ACCENT },
   toggleText: { color: TEXT, textAlign: 'center', fontWeight: '700' },
-  input: { backgroundColor: '#111827', color: TEXT, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  input: {
+    backgroundColor: '#111827',
+    color: TEXT,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   linkText: { color: ACCENT, fontWeight: '700' },
   notice: { color: '#bfdbfe', lineHeight: 20 },
   error: { color: ERROR, lineHeight: 20 },
-  button: { backgroundColor: ACCENT, borderRadius: 12, paddingVertical: 14, marginTop: 8 },
+  button: {
+    backgroundColor: ACCENT,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 8,
+  },
   buttonText: { color: TEXT, textAlign: 'center', fontWeight: '800' },
 });

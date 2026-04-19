@@ -14,9 +14,10 @@ export default function AboutScreen() {
     >
       <View style={styles.content}>
         <Text style={styles.text}>
-          Code Puppy is your sassy AI coding assistant that helps you complete tasks without bloated IDEs!
+          Code Puppy is your sassy AI coding assistant that helps you complete tasks
+          without bloated IDEs!
         </Text>
-        
+
         <View style={styles.section}>
           <Text style={styles.heading}>Features:</Text>
           <Text style={styles.bullet}>• Chat-style conversation</Text>
@@ -33,9 +34,7 @@ export default function AboutScreen() {
 
         <View style={styles.section}>
           <Text style={styles.heading}>Built with:</Text>
-          <Text style={styles.text}>
-            React Native + Expo + FastAPI + Python 🐍
-          </Text>
+          <Text style={styles.text}>React Native + Expo + FastAPI + Python 🐍</Text>
         </View>
 
         <View style={styles.section}>
@@ -43,12 +42,8 @@ export default function AboutScreen() {
           <Text style={styles.text}>
             GitHub Pages: albertoroca96.github.io/code-puppy-gui-git
           </Text>
-          <Text style={styles.text}>
-            API: code-puppy-api.fly.dev
-          </Text>
-          <Text style={styles.text}>
-            Mobile: iOS App (TestFlight)
-          </Text>
+          <Text style={styles.text}>API: code-puppy-api.fly.dev</Text>
+          <Text style={styles.text}>Mobile: iOS App (TestFlight)</Text>
         </View>
       </View>
     </AppShell>

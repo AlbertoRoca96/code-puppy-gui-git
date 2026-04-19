@@ -11,7 +11,9 @@ export default function LoadingScreen() {
     <View style={styles.container}>
       <ActivityIndicator size="large" color={ACCENT} />
       <Text style={styles.title}>Code Puppy</Text>
-      <Text style={styles.subtitle}>Restoring your session. Hold your dramatic sigh.</Text>
+      <Text style={styles.subtitle}>
+        Restoring your session. Hold your dramatic sigh.
+      </Text>
     </View>
   );
 }

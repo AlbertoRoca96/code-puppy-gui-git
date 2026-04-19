@@ -2,36 +2,58 @@ name: Deploy backend to Fly.io
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      FLY_APP_NAME: code-puppy-api
-
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
-      - name: Install dependencies for linting
+      - name: Install backend dependencies
         run: |
-          pip install -r backend/requirements.txt
-          pip install -e .
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+          python -m pip install -e .
 
-      - name: Run unit tests (worker smoke)
+      - name: Compile backend and desktop glue
         run: |
-          python -m compileall src/code_puppy_gui
+          python -m compileall backend src/code_puppy_gui tests
 
-      - name: Verify backend imports cleanly
+      - name: Run backend tests
         run: |
-          python -c "import backend.app; print('backend import ok')"
+          python -m pytest -q
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FLY_APP_NAME: code-puppy-api
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
@@ -43,7 +65,6 @@ jobs:
           if flyctl apps show "$FLY_APP_NAME" >/dev/null 2>&1; then
             echo "Fly app $FLY_APP_NAME already exists."
           else
-            echo "Creating Fly app $FLY_APP_NAME..."
             flyctl apps create "$FLY_APP_NAME"
           fi
 
@@ -57,33 +78,16 @@ jobs:
           SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
         run: |
           SECRET_ARGS=""
-
-          if [ -n "$SYN_API_KEY" ]; then
-            SECRET_ARGS="$SECRET_ARGS SYN_API_KEY=$SYN_API_KEY"
+          [ -n "$SYN_API_KEY" ] && SECRET_ARGS="$SECRET_ARGS SYN_API_KEY=$SYN_API_KEY"
+          [ -n "$OPEN_API_KEY" ] && SECRET_ARGS="$SECRET_ARGS OPEN_API_KEY=$OPEN_API_KEY"
+          [ -n "$SUPABASE_URL" ] && SECRET_ARGS="$SECRET_ARGS SUPABASE_URL=$SUPABASE_URL"
+          [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && SECRET_ARGS="$SECRET_ARGS SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY"
+          [ -n "$SUPABASE_STORAGE_BUCKET" ] && SECRET_ARGS="$SECRET_ARGS SUPABASE_STORAGE_BUCKET=$SUPABASE_STORAGE_BUCKET"
+          if [ -n "$SECRET_ARGS" ]; then
+            flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach
           fi
-          if [ -n "$OPEN_API_KEY" ]; then
-            SECRET_ARGS="$SECRET_ARGS OPEN_API_KEY=$OPEN_API_KEY"
-          fi
-          if [ -n "$SUPABASE_URL" ]; then
-            SECRET_ARGS="$SECRET_ARGS SUPABASE_URL=$SUPABASE_URL"
-          fi
-          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            SECRET_ARGS="$SECRET_ARGS SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY"
-          fi
-          if [ -n "$SUPABASE_STORAGE_BUCKET" ]; then
-            SECRET_ARGS="$SECRET_ARGS SUPABASE_STORAGE_BUCKET=$SUPABASE_STORAGE_BUCKET"
-          fi
-
-          if [ -z "$SECRET_ARGS" ]; then
-            echo "No deploy secrets provided. Skipping flyctl secrets set."
-            exit 0
-          fi
-
-          flyctl secrets set $SECRET_ARGS --app "$FLY_APP_NAME" --detach
-          echo "Secrets synced to $FLY_APP_NAME."
 
       - name: Deploy via Fly.io
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          flyctl deploy --config fly.toml --remote-only
+        run: flyctl deploy --config fly.toml --remote-only

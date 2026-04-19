@@ -11,6 +11,7 @@ import {
   Keyboard,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -20,6 +21,7 @@ import { UseChat } from '../src/hooks/useChat';
 import { getCurrentUser, getHealth } from '../src/lib/api';
 import { getCurrentSessionUser, loadStoredSession, signOut } from '../src/lib/auth';
 import { useDeviceUi } from '../src/lib/device';
+import { cleanupEmptySessionsOnce } from '../src/lib/sessionMaintenance';
 
 const BG = '#050816';
 const CARD_BG = '#0b1020';
@@ -78,10 +80,16 @@ export default function ChatScreen() {
     model,
     presetId,
     systemPrompt,
+    webSearchEnabled,
     isLoading,
     isHydrating,
     failureDebug,
+    maxMessagesPerSession,
+    streamingEnabled,
+    rolloverNotice,
+    isStreaming,
     sendMessage,
+    cancelStreaming,
     startNewChat,
     addAttachment,
     removeAttachment,
@@ -89,6 +97,8 @@ export default function ChatScreen() {
     setModel,
     setPresetId,
     setSystemPrompt,
+    setWebSearchEnabled,
+    setRolloverNotice,
   } = UseChat({ initialSessionId });
 
   const [input, setInput] = useState('');
@@ -104,6 +114,9 @@ export default function ChatScreen() {
   const deviceUi = useDeviceUi();
 
   useEffect(() => {
+    cleanupEmptySessionsOnce().catch((error) =>
+      console.warn('Failed to clean up empty sessions', error)
+    );
     loadStoredSession()
       .then(async (session) => {
         if (!session?.access_token) {
@@ -255,309 +268,372 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView
-        style={[styles.container, deviceUi.isWeb && styles.webContainer]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={88}
-      >
-        <View style={[styles.headerWrapper, deviceUi.isWide && styles.webShell]}>
-          <View style={styles.headerTopRow}>
+      <Pressable style={styles.pressableShell} onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          style={[styles.container, deviceUi.isWeb && styles.webContainer]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 16}
+        >
+          <View style={[styles.headerWrapper, deviceUi.isWide && styles.webShell]}>
+            <View style={styles.headerTopRow}>
+              <TouchableOpacity
+                style={styles.headerPill}
+                onPress={() =>
+                  router.push(
+                    `/sessions?sessionId=${encodeURIComponent(sessionId)}` as any
+                  )
+                }
+              >
+                <Text style={styles.headerPillText}>Chats</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerPill} onPress={handleNewChat}>
+                <Text style={styles.headerPillText}>New chat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerPill} onPress={handleSignOut}>
+                <Text style={styles.headerPillText}>Sign out</Text>
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity
-              style={styles.headerPill}
-              onPress={() =>
-                router.push(`/sessions?sessionId=${encodeURIComponent(sessionId)}` as any)
-              }
+              style={styles.headerCard}
+              onLongPress={handleHeaderLongPress}
+              activeOpacity={0.95}
             >
-              <Text style={styles.headerPillText}>Chats</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerPill} onPress={handleNewChat}>
-              <Text style={styles.headerPillText}>New chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerPill} onPress={handleSignOut}>
-              <Text style={styles.headerPillText}>Sign out</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={styles.headerCard}
-            onLongPress={handleHeaderLongPress}
-            activeOpacity={0.95}
-          >
-            <View style={styles.headerTitleRow}>
-              <View style={styles.headerTitleCopy}>
-                <Text style={styles.title}>Code PuppyChat</Text>
-                {!headerCollapsed ? (
-                  <Text style={styles.subtitle}>
-                    Selectable models, persistent sessions, and real file uploads.
-                  </Text>
-                ) : null}
-                {currentUserEmail ? (
-                  <Text style={styles.subtitle}>Signed in as {currentUserEmail}</Text>
-                ) : null}
-              </View>
-              <TouchableOpacity
-                style={styles.collapseButton}
-                onPress={() => setHeaderCollapsed((prev) => !prev)}
-              >
-                <Text style={styles.collapseButtonText}>
-                  {headerCollapsed ? 'Expand' : 'Minimize'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {!headerCollapsed ? (
-              <>
-                <Text style={styles.sessionText}>Session: {sessionId}</Text>
-                <Text style={styles.sessionText}>Title: {title}</Text>
-                <Text style={styles.sessionText}>Model: {model}</Text>
-                <Text style={styles.sessionText}>Preset: {presetId}</Text>
-                <Text style={styles.status}>{statusText}</Text>
-              </>
-            ) : (
-              <Text style={styles.sessionText}>Title: {title}</Text>
-            )}
-
-            <View style={styles.headerButtonRow}>
-              <TouchableOpacity
-                style={styles.statusButton}
-                onPress={handleCheckHealth}
-                disabled={checking}
-              >
-                <Text style={styles.statusButtonText}>
-                  {checking ? 'Checking…' : 'Check backend'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() => setShowModelControls((prev) => !prev)}
-              >
-                <Text style={styles.secondaryButtonText}>
-                  {showModelControls ? 'Hide controls' : 'Models & tools'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {!headerCollapsed && failureDebug ? (
-              <View style={styles.debugCard}>
-                <View style={styles.debugHeader}>
-                  <Text style={styles.debugTitle}>Failure debug</Text>
-                  <TouchableOpacity onPress={clearFailureDebug}>
-                    <Text style={styles.debugDismiss}>Dismiss</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.debugText}>
-                  [{failureDebug.stage}] {failureDebug.message}
-                </Text>
-                <Text style={styles.debugText}>{failureDebug.timestamp}</Text>
-                {failureDebug.details.map((detail, index) => (
-                  <Text key={`${failureDebug.timestamp}_${index}`} style={styles.debugDetail}>
-                    {detail}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-
-            {!headerCollapsed && showModelControls && (
-              <View style={styles.controlsCard}>
-                <Text style={styles.controlLabel}>Model</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.optionRow}
-                >
-                  {MODEL_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={[
-                        styles.optionChip,
-                        model === option && styles.optionChipActive,
-                      ]}
-                      onPress={() => setModel(option)}
-                    >
-                      <Text
-                        style={[
-                          styles.optionChipText,
-                          model === option && styles.optionChipTextActive,
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <Text style={styles.controlLabel}>Preset</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.optionRow}
-                >
-                  {PRESET_OPTIONS.map((option) => (
-                    <TouchableOpacity
-                      key={option.id}
-                      style={[
-                        styles.optionChip,
-                        presetId === option.id && styles.optionChipActive,
-                      ]}
-                      onPress={() => applyPreset(option.id)}
-                    >
-                      <Text
-                        style={[
-                          styles.optionChipText,
-                          presetId === option.id && styles.optionChipTextActive,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                <Text style={styles.controlLabel}>System prompt</Text>
-                <TextInput
-                  style={styles.promptInput}
-                  multiline
-                  value={systemPrompt}
-                  onChangeText={setSystemPrompt}
-                  placeholder="How should Code Puppy think?"
-                  placeholderTextColor="#6b7280"
-                />
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={[styles.chatWrapper, deviceUi.isWide && styles.webShell, deviceUi.isWide && styles.webChatWrapper]}>
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.messages}
-            contentContainerStyle={
-              messages.length === 0 ? styles.emptyContainer : styles.messagesContent
-            }
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="interactive"
-            onContentSizeChange={handleMessagesContentSizeChange}
-            onLayout={handleMessagesLayout}
-            onScrollBeginDrag={handleMessagesScrollBeginDrag}
-            scrollEventThrottle={16}
-          >
-            {messages.length === 0 ? (
-              <Text style={styles.emptyText}>
-                {isHydrating
-                  ? 'Loading chat history…'
-                  : 'Woof! System online. Ready for code, files, and chaos.'}
-              </Text>
-            ) : (
-              messages.map((msg) => (
-                <View
-                  key={msg.id}
-                  style={[
-                    styles.bubble,
-                    msg.role === 'user'
-                      ? styles.userBubble
-                      : styles.assistantBubble,
-                  ]}
-                >
-                  {msg.attachments?.length ? (
-                    <View style={styles.messageAttachments}>
-                      {msg.attachments.map((attachment) => (
-                        <View key={attachment.id} style={styles.messageAttachmentChip}>
-                          <Text style={styles.messageAttachmentText}>
-                            {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
+              <View style={styles.headerTitleRow}>
+                <View style={styles.headerTitleCopy}>
+                  <Text style={styles.title}>Code PuppyChat</Text>
+                  {!headerCollapsed ? (
+                    <Text style={styles.subtitle}>
+                      Selectable models, persistent sessions, and real file uploads.
+                    </Text>
                   ) : null}
-                  <Text
-                    selectable
-                    style={
-                      msg.role === 'user'
-                        ? styles.userText
-                        : styles.assistantText
-                    }
-                  >
-                    {msg.content}
-                  </Text>
+                  {currentUserEmail ? (
+                    <Text style={styles.subtitle}>Signed in as {currentUserEmail}</Text>
+                  ) : null}
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </View>
+                <TouchableOpacity
+                  style={styles.collapseButton}
+                  onPress={() => setHeaderCollapsed((prev) => !prev)}
+                >
+                  <Text style={styles.collapseButtonText}>
+                    {headerCollapsed ? 'Expand' : 'Minimize'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-        <View style={[styles.footer, deviceUi.isWide && styles.webShell, deviceUi.isWide && styles.webFooter]}>
-          <View style={styles.attachRow}>
-            <TouchableOpacity style={styles.attachButton} onPress={handlePickFile}>
-              <Text style={styles.attachButtonText}>+ File</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.attachButton} onPress={handlePickPhoto}>
-              <Text style={styles.attachButtonText}>+ Photo</Text>
-            </TouchableOpacity>
-          </View>
+              {!headerCollapsed ? (
+                <>
+                  <Text style={styles.sessionText}>Session: {sessionId}</Text>
+                  <Text style={styles.sessionText}>Title: {title}</Text>
+                  <Text style={styles.sessionText}>Model: {model}</Text>
+                  <Text style={styles.sessionText}>Preset: {presetId}</Text>
+                  <Text style={styles.sessionText}>
+                    Messages: {messages.length}/{maxMessagesPerSession}
+                  </Text>
+                  <Text style={styles.sessionText}>
+                    Streaming: {streamingEnabled ? 'on' : 'off'}
+                  </Text>
+                  <Text style={styles.status}>{statusText}</Text>
+                </>
+              ) : (
+                <Text style={styles.sessionText}>Title: {title}</Text>
+              )}
 
-          {attachments.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipsRow}
-            >
-              {attachments.map((attachment) => {
-                const statusLabel =
-                  attachment.status === 'uploading'
-                    ? 'uploading…'
-                    : attachment.status === 'retrying'
-                    ? 'retrying…'
-                    : attachment.status === 'uploaded'
-                    ? 'sent'
-                    : attachment.status === 'error'
-                    ? 'failed'
-                    : 'queued';
+              <View style={styles.headerButtonRow}>
+                <TouchableOpacity
+                  style={styles.statusButton}
+                  onPress={handleCheckHealth}
+                  disabled={checking}
+                >
+                  <Text style={styles.statusButtonText}>
+                    {checking ? 'Checking…' : 'Check backend'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => setShowModelControls((prev) => !prev)}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {showModelControls ? 'Hide controls' : 'Models & tools'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-                return (
-                  <TouchableOpacity
-                    key={attachment.id}
-                    style={styles.attachmentChip}
-                    onPress={() => removeAttachment(attachment.id)}
+              {!headerCollapsed && rolloverNotice ? (
+                <View style={styles.noticeCard}>
+                  <View style={styles.debugHeader}>
+                    <Text style={styles.noticeTitle}>Session rollover</Text>
+                    <TouchableOpacity onPress={() => setRolloverNotice(null)}>
+                      <Text style={styles.debugDismiss}>Dismiss</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.noticeText}>{rolloverNotice}</Text>
+                </View>
+              ) : null}
+
+              {!headerCollapsed && failureDebug ? (
+                <View style={styles.debugCard}>
+                  <View style={styles.debugHeader}>
+                    <Text style={styles.debugTitle}>Failure debug</Text>
+                    <TouchableOpacity onPress={clearFailureDebug}>
+                      <Text style={styles.debugDismiss}>Dismiss</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.debugText}>
+                    [{failureDebug.stage}] {failureDebug.message}
+                  </Text>
+                  <Text style={styles.debugText}>{failureDebug.timestamp}</Text>
+                  {failureDebug.details.map((detail, index) => (
+                    <Text
+                      key={`${failureDebug.timestamp}_${index}`}
+                      style={styles.debugDetail}
+                    >
+                      {detail}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
+
+              {!headerCollapsed && showModelControls && (
+                <View style={styles.controlsCard}>
+                  <Text style={styles.controlLabel}>Model</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.optionRow}
                   >
-                    <Text style={styles.attachmentChipText}>
-                      {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name} · {statusLabel} ×
+                    {MODEL_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option}
+                        style={[
+                          styles.optionChip,
+                          model === option && styles.optionChipActive,
+                        ]}
+                        onPress={() => setModel(option)}
+                      >
+                        <Text
+                          style={[
+                            styles.optionChipText,
+                            model === option && styles.optionChipTextActive,
+                          ]}
+                        >
+                          {option}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <Text style={styles.controlLabel}>Preset</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.optionRow}
+                  >
+                    {PRESET_OPTIONS.map((option) => (
+                      <TouchableOpacity
+                        key={option.id}
+                        style={[
+                          styles.optionChip,
+                          presetId === option.id && styles.optionChipActive,
+                        ]}
+                        onPress={() => applyPreset(option.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.optionChipText,
+                            presetId === option.id && styles.optionChipTextActive,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <Text style={styles.controlLabel}>System prompt</Text>
+                  <TextInput
+                    style={styles.promptInput}
+                    multiline
+                    value={systemPrompt}
+                    onChangeText={setSystemPrompt}
+                    placeholder="How should Code Puppy think?"
+                    placeholderTextColor="#6b7280"
+                  />
+                  <Text style={styles.controlLabel}>Web search</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.optionChip,
+                      webSearchEnabled && styles.optionChipActive,
+                    ]}
+                    onPress={() => setWebSearchEnabled(!webSearchEnabled)}
+                  >
+                    <Text
+                      style={[
+                        styles.optionChipText,
+                        webSearchEnabled && styles.optionChipTextActive,
+                      ]}
+                    >
+                      {webSearchEnabled ? 'Enabled' : 'Disabled'}
                     </Text>
                   </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Enter a coding task"
-            placeholderTextColor="#6b7280"
-            value={input}
-            onChangeText={setInput}
-            editable={!isLoading && !isHydrating}
-            returnKeyType="send"
-            onSubmitEditing={handleSend}
-            onFocus={() => setHeaderCollapsed(true)}
-          />
-          <TouchableOpacity
+          <View
             style={[
-              styles.sendButton,
-              (!input.trim() || isLoading || isHydrating) &&
-                styles.sendButtonDisabled,
+              styles.chatWrapper,
+              deviceUi.isWide && styles.webShell,
+              deviceUi.isWide && styles.webChatWrapper,
             ]}
-            onPress={handleSend}
-            disabled={!input.trim() || isLoading || isHydrating}
           >
-            <Text style={styles.sendText}>
-              {isHydrating
-                ? 'Loading history…'
-                : isLoading
-                  ? 'Uploading snacks & summoning puppy…'
-                  : 'Send to Code Puppy'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+            <ScrollView
+              ref={scrollViewRef}
+              style={styles.messages}
+              contentContainerStyle={
+                messages.length === 0 ? styles.emptyContainer : styles.messagesContent
+              }
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              onContentSizeChange={handleMessagesContentSizeChange}
+              onLayout={handleMessagesLayout}
+              onScrollBeginDrag={handleMessagesScrollBeginDrag}
+              scrollEventThrottle={16}
+            >
+              {messages.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  {isHydrating
+                    ? 'Loading chat history…'
+                    : 'Woof! System online. Ready for code, files, and chaos.'}
+                </Text>
+              ) : (
+                messages.map((msg) => (
+                  <View
+                    key={msg.id}
+                    style={[
+                      styles.bubble,
+                      msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
+                    ]}
+                  >
+                    {msg.attachments?.length ? (
+                      <View style={styles.messageAttachments}>
+                        {msg.attachments.map((attachment) => (
+                          <View key={attachment.id} style={styles.messageAttachmentChip}>
+                            <Text style={styles.messageAttachmentText}>
+                              {attachment.kind === 'image' ? '🖼' : '📎'}{' '}
+                              {attachment.name}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                    <Text
+                      selectable
+                      style={msg.role === 'user' ? styles.userText : styles.assistantText}
+                    >
+                      {msg.content}
+                    </Text>
+                  </View>
+                ))
+              )}
+              {isStreaming ? (
+                <View style={styles.typingRow}>
+                  <Text style={styles.typingText}>Code Puppy is typing…</Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+
+          <View
+            style={[
+              styles.footer,
+              deviceUi.isWide && styles.webShell,
+              deviceUi.isWide && styles.webFooter,
+            ]}
+          >
+            <View style={styles.attachRow}>
+              <TouchableOpacity style={styles.attachButton} onPress={handlePickFile}>
+                <Text style={styles.attachButtonText}>+ File</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.attachButton} onPress={handlePickPhoto}>
+                <Text style={styles.attachButtonText}>+ Photo</Text>
+              </TouchableOpacity>
+            </View>
+
+            {attachments.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipsRow}
+              >
+                {attachments.map((attachment) => {
+                  const statusLabel =
+                    attachment.status === 'uploading'
+                      ? `uploading ${Math.round(attachment.progressPct || 0)}%`
+                      : attachment.status === 'retrying'
+                        ? `retrying ${Math.round(attachment.progressPct || 0)}%`
+                        : attachment.status === 'uploaded'
+                          ? 'sent'
+                          : attachment.status === 'error'
+                            ? 'failed'
+                            : 'queued';
+
+                  return (
+                    <TouchableOpacity
+                      key={attachment.id}
+                      style={styles.attachmentChip}
+                      onPress={() => removeAttachment(attachment.id)}
+                    >
+                      <Text style={styles.attachmentChipText}>
+                        {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name} ·{' '}
+                        {statusLabel} ×
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <TextInput
+              style={styles.input}
+              placeholder="Enter a coding task"
+              placeholderTextColor="#6b7280"
+              value={input}
+              onChangeText={setInput}
+              editable={!isLoading && !isHydrating}
+              multiline
+              textAlignVertical="top"
+              returnKeyType="default"
+              blurOnSubmit={false}
+              selectionColor={ACCENT}
+              cursorColor={ACCENT}
+              onFocus={() => setHeaderCollapsed(true)}
+            />
+            {isStreaming ? (
+              <TouchableOpacity style={styles.cancelButton} onPress={cancelStreaming}>
+                <Text style={styles.cancelButtonText}>Stop streaming</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                (!input.trim() || isLoading || isHydrating) && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!input.trim() || isLoading || isHydrating}
+            >
+              <Text style={styles.sendText}>
+                {isHydrating
+                  ? 'Loading history…'
+                  : isLoading
+                    ? 'Uploading snacks & summoning puppy…'
+                    : 'Send to Code Puppy'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -566,6 +642,9 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: BG,
+  },
+  pressableShell: {
+    flex: 1,
   },
   container: {
     flex: 1,
@@ -683,6 +762,24 @@ const styles = StyleSheet.create({
     color: '#f9fafb',
     fontSize: 14,
     fontWeight: '600',
+  },
+  noticeCard: {
+    marginTop: 12,
+    backgroundColor: '#1f2937',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 14,
+    padding: 12,
+  },
+  noticeTitle: {
+    color: '#fde68a',
+    fontWeight: '800',
+  },
+  noticeText: {
+    color: '#f8fafc',
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 18,
   },
   debugCard: {
     marginTop: 12,
@@ -870,16 +967,40 @@ const styles = StyleSheet.create({
     color: '#f9fafb',
     fontSize: 12,
   },
+  typingRow: {
+    paddingVertical: 8,
+    alignItems: 'flex-start',
+  },
+  typingText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
   input: {
     borderWidth: 1,
     borderColor: '#1f2937',
     borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: '#020617',
     color: '#f9fafb',
-    fontSize: 14,
+    fontSize: 16,
+    minHeight: 88,
+    maxHeight: 180,
     marginBottom: 10,
+  },
+  cancelButton: {
+    marginBottom: 10,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#374151',
+    paddingVertical: 10,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#f9fafb',
+    fontWeight: '700',
   },
   sendButton: {
     backgroundColor: ACCENT,

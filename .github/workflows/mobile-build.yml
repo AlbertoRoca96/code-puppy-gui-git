@@ -2,90 +2,149 @@ name: Build and Test Mobile App
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'mobile/**'
+      - '.github/workflows/mobile-build.yml'
   pull_request:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'mobile/**'
+      - '.github/workflows/mobile-build.yml'
   workflow_dispatch:
+    inputs:
+      run_production_builds:
+        description: 'Run manual production mobile builds'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
-  build-ios:
+  quality:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
     steps:
-      - name: 📥 Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 📦 Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.npm
-            mobile/node_modules
-          key: ${{ runner.os }}-mobile-${{ hashFiles('mobile/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-mobile-
-
-      - name: 🏗️ Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
-      - name: 🔨 Install dependencies
-        working-directory: ./mobile
+      - name: Install dependencies
         run: npm ci
 
-      - name: ✅ Type check
-        working-directory: ./mobile
+      - name: Type check
         run: npx tsc --noEmit
 
-      - name: 📱 Build iOS TestFlight
-        if: github.ref == 'refs/heads/main'
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-          command: build --platform ios --profile preview --non-interactive
+      - name: Lint
+        run: npm run lint
 
-  build-android:
+      - name: Prettier check
+        run: npm run format
+
+  build-preview:
+    if: github.event_name != 'pull_request'
+    needs: quality
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [ios, android]
+    defaults:
+      run:
+        working-directory: ./mobile
     steps:
-      - name: 📥 Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 📦 Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.npm
-            mobile/node_modules
-          key: ${{ runner.os }}-mobile-${{ hashFiles('mobile/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-mobile-
-
-      - name: 🏗️ Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
-      - name: 🔨 Install dependencies
-        working-directory: ./mobile
+      - name: Install dependencies
         run: npm ci
 
-      - name: ✅ Type check
-        working-directory: ./mobile
-        run: npx tsc --noEmit
-
-      - name: 🤖 Build Android APK
-        if: github.ref == 'refs/heads/main'
+      - name: Expo / EAS build preview
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
-          command: build --platform android --profile preview --non-interactive
+          command: build --platform ${{ matrix.platform }} --profile preview --non-interactive
+
+  build-production:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_production_builds == 'true'
+    needs: quality
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [ios, android]
+    defaults:
+      run:
+        working-directory: ./mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production artifact
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          command: build --platform ${{ matrix.platform }} --profile production --non-interactive
+
+  submit-production-ios:
+    if: (github.ref == 'refs/heads/main' && github.event_name != 'pull_request') || (github.event_name == 'workflow_dispatch' && inputs.run_production_builds == 'true')
+    needs: quality
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build iOS production artifact
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          command: build --platform ios --profile production --non-interactive
+
+      - name: Submit iOS production build to App Store / TestFlight
+        if: ${{ secrets.EXPO_APPLE_ID != '' && secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.EXPO_ASC_APP_ID != '' }}
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          command: submit --platform ios --profile production --non-interactive

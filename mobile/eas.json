@@ -13,12 +13,14 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "APP_ENV": "preview"
       }
     },
     "production": {
       "distribution": "store",
+      "channel": "production",
       "env": {
         "APP_ENV": "production"
       },
@@ -26,11 +28,17 @@
         "autoIncrement": true
       },
       "android": {
-        "autoIncrement": true
+        "autoIncrement": true,
+        "buildType": "app-bundle"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "${EXPO_ASC_APP_ID}",
+        "appleId": "${EXPO_APPLE_ID}"
+      }
+    }
   }
 }

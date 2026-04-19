@@ -43,7 +43,9 @@ export async function normalizeDeviceFileUri(
     notes.push('Android content:// URI detected; copying to cache for stable upload.');
     const cacheDir = (FileSystem as any).cacheDirectory as string | null | undefined;
     if (!cacheDir) {
-      notes.push('Expo cache directory unavailable; falling back to original content URI.');
+      notes.push(
+        'Expo cache directory unavailable; falling back to original content URI.'
+      );
     } else {
       const ext = safeExtFromUri(uri);
       const dest = `${cacheDir}code-puppy-upload-${Date.now()}-${Math.random()
@@ -64,7 +66,9 @@ export async function normalizeDeviceFileUri(
   }
 
   if (uri.startsWith('ph://')) {
-    notes.push('iOS Photos ph:// URI may require conversion if returned by a different picker flow.');
+    notes.push(
+      'iOS Photos ph:// URI may require conversion if returned by a different picker flow.'
+    );
   }
 
   return {

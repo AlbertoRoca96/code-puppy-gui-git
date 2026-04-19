@@ -1,89 +1,57 @@
-# Code Puppy Mobile App 🐶
+# Code Puppy Mobile
 
-iOS/Android app for Code Puppy - your sassy AI coding assistant!
+Expo app for Android, iOS, and web.
 
-## 📱 Development
+## What works
+
+- Supabase auth
+- Chat sessions
+- Local + remote session history
+- Attachment uploads
+- Photo uploads
+- Streaming assistant responses
+- Optional web-search augmentation
+- Empty-session suppression
+- Automatic rollover after 200 messages
+- Existing empty session cleanup on startup
+- Runtime settings for API base override, search toggle, and streaming toggle
+
+## Development
 
 ```bash
 npm install
-npm start          # Start Expo dev server (press 'i' for iOS, 'a' for Android)
-npm run ios        # Run on iOS simulator
-npm run android    # Run on Android emulator
+npm start
+npm run android
+npm run ios
 ```
 
-## 🚀 Building for Production
+## Storage model
 
-### Setup EAS (first time)
+- Auth tokens: SecureStore / browser localStorage
+- Chat session cache: AsyncStorage / browser localStorage
+
+## Important UX fixes
+
+- Android composer stays visible when the keyboard opens
+- Tapping outside the composer dismisses the keyboard
+- Opening the app on a fresh draft no longer creates junk `New chat / 0 msgs` sessions
+
+## Build
+
 ```bash
-npm install -g eas-cli
-eas login
-eas build:configure
+eas build --platform android --profile preview
+eas build --platform ios --profile preview
 ```
 
-### Build iOS
+Production store/TestFlight submission is now wired in CI, but still needs the usual EAS/App Store credentials and secrets.
+
+See `../RELEASE_CHECKLIST.md` for the exact secret checklist, iOS metadata requirements, and Android release notes.
+See `../QA_CHECKLIST.md` for the manual Android/iOS/device QA pass before release.
+
+## Quality checks
+
 ```bash
-eas build --platform ios --profile production
+npm run lint
+npm run format
+npx tsc --noEmit
 ```
-
-### Build Android
-```bash
-eas build --platform android --profile production
-```
-
-### Submit to App Store/TestFlight
-```bash
-eas submit --platform ios --profile production
-```
-
-## 🔧 Configuration
-
-- `app.config.ts` - Expo configuration
-- `eas.json` - Build profiles
-- `package.json` - Dependencies and scripts
-- `src/hooks/useChat.ts` - Chat state management
-- `src/lib/` - API integration (TODO: connect to FastAPI backend)
-
-## 📁 Structure
-
-```
-mobile/
-├── app/                # Expo Router screens
-│   ├── _layout.tsx     # Root layout
-│   ├── index.tsx       # Main chat screen
-│   ├── settings.tsx    # Settings page
-│   └── about.tsx       # About page
-├── src/
-│   ├── components/     # Reusable components (TODO)
-│   ├── hooks/          # React hooks
-│   └── lib/            # Utilities & API clients (TODO)
-└── assets/             # Images and icons (add icon.png)
-```
-
-## 🌐 Backend Integration
-
-This mobile app connects to the FastAPI backend:
-- Local dev: `http://localhost:8000/api/chat`
-- Production: `https://code-puppy-api.fly.dev/api/chat`
-
-The API client will be in `src/lib/api.ts` (TODO).
-
-## 📝 TODO
-
-- [ ] Add icon.png and adaptive-icon.png to assets/
-- [ ] Create PromptInput component
-- [ ] Create ResponseDisplay component  
-- [ ] Implement proper API client in src/lib/api.ts
-- [ ] Add proper chat message UI
-- [ ] Configure EAS project ID
-- [ ] Test on real iOS device
-- [ ] Set up TestFlight distribution
-
-## 🔗 Links
-
-- GitHub Pages (Web): https://albertoroca96.github.io/code-puppy-gui-git
-- API Backend: https://code-puppy-api.fly.dev
-- GitHub Repo: https://github.com/AlbertoRoca96/code-puppy-gui-git
-
----
-
-Ready to code! 🐶🚀

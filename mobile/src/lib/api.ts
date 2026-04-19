@@ -1,8 +1,7 @@
-// Code Puppy API client for Puppy Chat mobile app
-
 import { Platform } from 'react-native';
+
 import { getAccessToken, getValidAccessToken } from './auth';
-import { API_BASE } from './config';
+import { getApiBase } from './config';
 
 export interface ChatMessageInput {
   role: 'user' | 'assistant' | 'system';
@@ -28,51 +27,38 @@ async function buildAuthHeaders(options: RequestInit = {}, forceRefresh = false)
   };
 }
 
-export async function apiCall(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<any> {
-  const url = `${API_BASE}${endpoint}`;
-
+export async function apiCall(endpoint: string, options: RequestInit = {}): Promise<any> {
+  const url = `${await getApiBase()}${endpoint}`;
   let response = await fetch(url, {
     ...options,
     headers: await buildAuthHeaders(options),
   });
-
   if (response.status === 401) {
     response = await fetch(url, {
       ...options,
       headers: await buildAuthHeaders(options, true),
     });
   }
-
   const text = await response.text();
-
   if (!response.ok) {
     try {
       const data = JSON.parse(text);
-      const msg = data.error || data.message || data.detail || `API error: ${response.status}`;
-      throw new Error(msg);
-    } catch {
-      const snippet = text.slice(0, 140).replace(/\s+/g, ' ');
       throw new Error(
-        `API error ${response.status}: ${snippet || 'Unexpected response'}`
+        data.error || data.message || data.detail || `API error: ${response.status}`
+      );
+    } catch {
+      throw new Error(
+        `API error ${response.status}: ${text.slice(0, 140).replace(/\s+/g, ' ') || 'Unexpected response'}`
       );
     }
   }
-
   try {
     return text ? JSON.parse(text) : {};
   } catch (err) {
-    const snippet = text.slice(0, 140).replace(/\s+/g, ' ');
     throw new Error(
-      `JSON Parse error: ${(err as Error).message}. Body starts with: ${snippet}`
+      `JSON Parse error: ${(err as Error).message}. Body starts with: ${text.slice(0, 140).replace(/\s+/g, ' ')}`
     );
   }
-}
-
-function getApiBase(): string {
-  return API_BASE;
 }
 
 export interface ChatRequestInput {
@@ -80,6 +66,7 @@ export interface ChatRequestInput {
   model?: string | null;
   systemPrompt?: string | null;
   temperature?: number | null;
+  webSearch?: boolean;
   attachments?: {
     id: string;
     name: string;
@@ -99,33 +86,18 @@ export interface ChatResponse {
   model?: string;
 }
 
-export interface HealthStatus {
-  status: string;
-}
-
-export interface CurrentUserResponse {
-  id: string;
-  email?: string | null;
-}
-
-export async function sendMessage({
-  messages,
-  model,
-  systemPrompt,
-  temperature,
-  attachments,
-}: ChatRequestInput): Promise<ChatResponse> {
+export async function sendMessage(input: ChatRequestInput): Promise<ChatResponse> {
   const raw = await apiCall('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
-      messages,
-      model: model || undefined,
-      systemPrompt: systemPrompt || undefined,
-      temperature: temperature ?? undefined,
-      attachments: attachments || undefined,
+      messages: input.messages,
+      model: input.model || undefined,
+      systemPrompt: input.systemPrompt || undefined,
+      temperature: input.temperature ?? undefined,
+      attachments: input.attachments || undefined,
+      webSearch: input.webSearch || undefined,
     }),
   });
-
   return {
     message: String(raw.message ?? ''),
     raw: raw.raw,
@@ -134,24 +106,156 @@ export async function sendMessage({
   };
 }
 
-export async function uploadAttachment(params: {
-  uri: string;
-  name: string;
-  kind: 'file' | 'image';
-  mimeType?: string | null;
-}): Promise<AttachmentUploadResponse> {
-  const buildFormData = async (): Promise<FormData> => {
+export async function streamMessage(
+  input: ChatRequestInput,
+  handlers: {
+    onDelta: (text: string) => void;
+    onDone: (message: string, model?: string) => void;
+  },
+  options: {
+    signal?: AbortSignal;
+  } = {}
+): Promise<void> {
+  const accessToken = await getValidAccessToken(false);
+  const response = await fetch(`${await getApiBase()}/api/chat/stream`, {
+    method: 'POST',
+    signal: options.signal,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({
+      messages: input.messages,
+      model: input.model || undefined,
+      systemPrompt: input.systemPrompt || undefined,
+      temperature: input.temperature ?? undefined,
+      attachments: input.attachments || undefined,
+      webSearch: input.webSearch || undefined,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Streaming request failed (${response.status})`);
+  }
+  if (!response.body) {
+    const fallback = await sendMessage(input);
+    handlers.onDone(fallback.message, fallback.model);
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let fullText = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() || '';
+
+    for (const chunk of chunks) {
+      const dataLine = chunk
+        .split('\n')
+        .find((line) => line.startsWith('data:'))
+        ?.slice(5)
+        .trim();
+      if (!dataLine) continue;
+      const event = JSON.parse(dataLine) as {
+        event?: string;
+        content?: string;
+        model?: string;
+      };
+      if (event.event === 'delta' && event.content) {
+        fullText += event.content;
+        handlers.onDelta(event.content);
+      }
+      if (event.event === 'done') {
+        handlers.onDone(event.content || fullText, event.model);
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    const dataLine = buffer
+      .split('\n')
+      .find((line) => line.startsWith('data:'))
+      ?.slice(5)
+      .trim();
+    if (dataLine) {
+      const event = JSON.parse(dataLine) as {
+        event?: string;
+        content?: string;
+        model?: string;
+      };
+      handlers.onDone(event.content || fullText, event.model);
+      return;
+    }
+  }
+  handlers.onDone(fullText);
+}
+
+export async function uploadAttachment(
+  params: {
+    uri: string;
+    name: string;
+    kind: 'file' | 'image';
+    mimeType?: string | null;
+  },
+  options: {
+    onProgress?: (progressPct: number) => void;
+  } = {}
+): Promise<AttachmentUploadResponse> {
+  const apiBase = await getApiBase();
+  const accessToken = await getAccessToken();
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${apiBase}/api/uploads`);
+    if (accessToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && options.onProgress) {
+        options.onProgress(
+          Math.max(0, Math.min(100, (event.loaded / event.total) * 100))
+        );
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed due to a network error.'));
+    xhr.onload = () => {
+      const text = xhr.responseText || '';
+      if (xhr.status < 200 || xhr.status >= 300) {
+        try {
+          const data = JSON.parse(text);
+          reject(new Error(data.error || data.message || data.detail || 'Upload failed'));
+        } catch {
+          reject(new Error(text || `Upload failed (${xhr.status})`));
+        }
+        return;
+      }
+      try {
+        resolve(JSON.parse(text) as AttachmentUploadResponse);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
     const formData = new FormData();
     formData.append('kind', params.kind);
-
     if (Platform.OS === 'web') {
-      const response = await fetch(params.uri);
-      const blob = await response.blob();
-      const file = new File([blob], params.name, {
-        type: params.mimeType || blob.type || 'application/octet-stream',
-      });
-      formData.append('file', file);
-      return formData;
+      fetch(params.uri)
+        .then((response) => response.blob())
+        .then((blob) => {
+          const file = new File([blob], params.name, {
+            type: params.mimeType || blob.type || 'application/octet-stream',
+          });
+          formData.append('file', file);
+          xhr.send(formData);
+        })
+        .catch(reject);
+      return;
     }
 
     formData.append('file', {
@@ -159,39 +263,8 @@ export async function uploadAttachment(params: {
       name: params.name,
       type: params.mimeType || 'application/octet-stream',
     } as any);
-    return formData;
-  };
-
-  let accessToken = await getAccessToken();
-  let response = await fetch(`${getApiBase()}/api/uploads`, {
-    method: 'POST',
-    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-    body: await buildFormData(),
+    xhr.send(formData);
   });
-
-  if (response.status === 401) {
-    accessToken = await getValidAccessToken(true);
-    response = await fetch(`${getApiBase()}/api/uploads`, {
-      method: 'POST',
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-      body: await buildFormData(),
-    });
-  }
-
-  const text = await response.text();
-  if (!response.ok) {
-    try {
-      const data = JSON.parse(text);
-      throw new Error(data.error || data.message || data.detail || 'Upload failed');
-    } catch {
-      throw new Error(text || `Upload failed (${response.status})`);
-    }
-  }
-
-  if (!text) {
-    throw new Error('Upload endpoint returned an empty response body');
-  }
-  return JSON.parse(text) as AttachmentUploadResponse;
 }
 
 export async function getUpload(uploadId: string): Promise<AttachmentUploadResponse> {
@@ -209,17 +282,23 @@ export async function getUpload(uploadId: string): Promise<AttachmentUploadRespo
   };
 }
 
-export async function getHealth(): Promise<HealthStatus> {
+export async function getHealth(): Promise<{ status: string; messageLimit?: number }> {
   const raw = await apiCall('/api/health', { method: 'GET' });
-  return {
-    status: String(raw.status ?? ''),
-  };
+  return { status: String(raw.status ?? ''), messageLimit: raw.messageLimit };
 }
 
-export async function getCurrentUser(): Promise<CurrentUserResponse> {
+export async function getCurrentUser(): Promise<{ id: string; email?: string | null }> {
   const raw = await apiCall('/api/me', { method: 'GET' });
+  return { id: String(raw.id ?? ''), email: raw.email ?? null };
+}
+
+export async function cleanupEmptySessions(): Promise<{
+  status: string;
+  removed: number;
+}> {
+  const raw = await apiCall('/api/sessions/cleanup-empty', { method: 'POST' });
   return {
-    id: String(raw.id ?? ''),
-    email: raw.email ?? null,
+    status: String(raw.status ?? ''),
+    removed: Number(raw.removed ?? 0),
   };
 }

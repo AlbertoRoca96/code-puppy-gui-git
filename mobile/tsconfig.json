@@ -8,16 +8,8 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "types": [
-      "react",
-      "react-native"
-    ]
+    "types": ["react", "react-native"]
   },
   "extends": "expo/tsconfig.base",
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
-  ]
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

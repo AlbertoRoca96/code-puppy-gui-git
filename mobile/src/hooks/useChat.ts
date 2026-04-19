@@ -1,19 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  sendMessage as apiSendMessage,
-  ChatResponse,
-  getUpload,
-  uploadAttachment,
-} from '../lib/api';
-import {
-  hasUploadedAttachment,
-  toAttachmentReferences,
-} from '../lib/attachments';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { getUpload, streamMessage, uploadAttachment } from '../lib/api';
+import { toAttachmentReferences } from '../lib/attachments';
 import { normalizeDeviceFileUri } from '../lib/devicePaths';
-import {
-  loadLocalSessionSnapshot,
-  saveLocalSessionSnapshot,
-} from '../lib/localSessions';
+import { loadLocalSessionSnapshot, saveLocalSessionSnapshot } from '../lib/localSessions';
+import { loadPreferences } from '../lib/preferences';
 import {
   createSessionId,
   deriveSessionTitle,
@@ -48,6 +39,7 @@ const DEFAULT_PRESET = 'code-puppy-default';
 const DEFAULT_SYSTEM_PROMPT =
   'You are Code Puppy on SYN GLM-4.7. Be concise, cite key assumptions, and end with an actionable checklist.';
 const DEFAULT_TEMPERATURE = 0.2;
+const MAX_MESSAGES_PER_SESSION = 200;
 
 function toSessionMessages(messages: Message[]): SessionMessage[] {
   return messages.map((message) => ({
@@ -74,12 +66,12 @@ function createFailureDebug(
   message: string,
   details: string[] = []
 ): FailureDebugInfo {
-  return {
-    stage,
-    message,
-    details,
-    timestamp: new Date().toISOString(),
-  };
+  return { stage, message, details, timestamp: new Date().toISOString() };
+}
+
+function isMeaningfulState(messages: Message[], composer = ''): boolean {
+  if (messages.some((message) => message.content.trim())) return true;
+  return Boolean(composer.trim());
 }
 
 export function UseChat(options: UseChatOptions = {}) {
@@ -91,16 +83,60 @@ export function UseChat(options: UseChatOptions = {}) {
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [presetId, setPresetId] = useState(DEFAULT_PRESET);
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [rolloverNotice, setRolloverNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isHydrating, setIsHydrating] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [failureDebug, setFailureDebug] = useState<FailureDebugInfo | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const buildSnapshot = useCallback(
+    (
+      targetSessionId: string,
+      nextMessages: Message[],
+      nextComposer = ''
+    ): SessionSnapshot => ({
+      sessionId: targetSessionId,
+      title: deriveSessionTitle(toSessionMessages(nextMessages)),
+      messages: toSessionMessages(nextMessages),
+      composer: nextComposer,
+      updatedAt: Date.now() / 1000,
+      model,
+      presetId,
+      systemPrompt,
+    }),
+    [model, presetId, systemPrompt]
+  );
+
+  const persistState = useCallback(
+    async (targetSessionId: string, nextMessages: Message[], nextComposer = '') => {
+      const snapshot = buildSnapshot(targetSessionId, nextMessages, nextComposer);
+      if (!isMeaningfulState(nextMessages, nextComposer)) {
+        await saveLocalSessionSnapshot(snapshot);
+        return;
+      }
+      await Promise.all([
+        saveSession(targetSessionId, snapshot),
+        saveLocalSessionSnapshot(snapshot),
+      ]);
+    },
+    [buildSnapshot]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     async function hydrate() {
+      const prefs = await loadPreferences();
+      if (!cancelled) {
+        setWebSearchEnabled(Boolean(prefs.webSearchEnabled));
+        setStreamingEnabled(prefs.streamingEnabled ?? true);
+      }
+
       if (!options.initialSessionId) {
         setInitialized(true);
         return;
@@ -114,7 +150,6 @@ export function UseChat(options: UseChatOptions = {}) {
         if (localSnapshot && !cancelled) {
           setSessionId(localSnapshot.sessionId);
           setMessages(toUiMessages(localSnapshot.messages || []));
-          setAttachments([]);
           setModel(localSnapshot.model || DEFAULT_MODEL);
           setPresetId(localSnapshot.presetId || DEFAULT_PRESET);
           setSystemPrompt(localSnapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
@@ -123,93 +158,47 @@ export function UseChat(options: UseChatOptions = {}) {
         console.warn('Failed to load local session snapshot', error);
       }
 
-      loadSession(options.initialSessionId)
-        .then((snapshot) => {
-          if (cancelled) return;
-          setSessionId(snapshot.sessionId || options.initialSessionId || createSessionId());
+      try {
+        const snapshot = await loadSession(options.initialSessionId);
+        if (!cancelled) {
+          setSessionId(
+            snapshot.sessionId || options.initialSessionId || createSessionId()
+          );
           setMessages(toUiMessages(snapshot.messages || []));
-          setAttachments([]);
           setModel(snapshot.model || DEFAULT_MODEL);
           setPresetId(snapshot.presetId || DEFAULT_PRESET);
           setSystemPrompt(snapshot.systemPrompt || DEFAULT_SYSTEM_PROMPT);
-        })
-        .catch((error) => {
-          console.warn('Failed to load remote session', error);
-          setFailureDebug(
-            createFailureDebug('load-session', 'Failed to load session from server', [
-              String(error),
-            ])
-          );
-        })
-        .finally(() => {
-          if (!cancelled) {
-            setIsHydrating(false);
-            setInitialized(true);
-          }
-        });
+        }
+      } catch (error) {
+        console.warn('Failed to load remote session', error);
+        setFailureDebug(
+          createFailureDebug('load-session', 'Failed to load session from server', [
+            String(error),
+          ])
+        );
+      } finally {
+        if (!cancelled) {
+          setIsHydrating(false);
+          setInitialized(true);
+        }
+      }
     }
 
-    hydrate().catch((error) => {
-      console.warn('Unexpected hydrate error', error);
-    });
-
+    hydrate().catch((error) => console.warn('Unexpected hydrate error', error));
     return () => {
       cancelled = true;
     };
   }, [options.initialSessionId]);
 
-  const updateAttachmentStatus = (
-    attachmentId: string,
-    status: SessionAttachment['status']
-  ) => {
-    setAttachments((prev) =>
-      prev.map((attachment) =>
-        attachment.id === attachmentId ? { ...attachment, status } : attachment
-      )
-    );
-  };
-
-  const buildSnapshot = (
-    nextMessages: Message[],
-    nextComposer = '',
-    nextAttachments: SessionAttachment[] = attachments
-  ): SessionSnapshot => {
-    const snapshotMessages = toSessionMessages(nextMessages);
-    return {
-      sessionId,
-      title: deriveSessionTitle(snapshotMessages),
-      messages: snapshotMessages,
-      composer: nextComposer,
-      updatedAt: Date.now() / 1000,
-      model,
-      presetId,
-      systemPrompt,
-    };
-  };
-
-  const persistState = async (
-    nextMessages: Message[],
-    nextComposer = '',
-    nextAttachments: SessionAttachment[] = attachments
-  ) => {
-    const snapshot = buildSnapshot(nextMessages, nextComposer, nextAttachments);
-    await Promise.all([
-      saveSession(sessionId, snapshot),
-      saveLocalSessionSnapshot(snapshot),
-    ]);
-  };
-
   useEffect(() => {
-    if (!initialized || isHydrating || isLoading) {
-      return;
-    }
+    if (!initialized || isHydrating || isLoading) return;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
     saveTimeoutRef.current = setTimeout(() => {
-      persistState(messages).catch((error) => {
+      persistState(sessionId, messages).catch((error) => {
         console.warn('Failed to autosave session metadata', error);
         setFailureDebug(
           createFailureDebug('autosave', 'Failed to autosave session metadata', [
@@ -224,7 +213,28 @@ export function UseChat(options: UseChatOptions = {}) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [initialized, isHydrating, isLoading, sessionId, messages, attachments, model, presetId, systemPrompt]);
+  }, [initialized, isHydrating, isLoading, messages, persistState, sessionId]);
+
+  const updateAttachmentStatus = (
+    attachmentId: string,
+    status: SessionAttachment['status'],
+    progressPct?: number | null
+  ) => {
+    setAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === attachmentId
+          ? {
+              ...attachment,
+              status,
+              progressPct:
+                typeof progressPct === 'number'
+                  ? progressPct
+                  : (attachment.progressPct ?? null),
+            }
+          : attachment
+      )
+    );
+  };
 
   const ensureUploadedAttachments = async (
     forceRefresh = false
@@ -247,175 +257,218 @@ export function UseChat(options: UseChatOptions = {}) {
           } catch (error) {
             if (!attachment.uri && !uriInfo.normalizedUri) {
               updateAttachmentStatus(attachment.id, 'error');
-              const debug = createFailureDebug(
-                'upload-attachment',
-                `Attachment ${attachment.name} is stale and cannot be re-uploaded`,
-                [String(error)]
+              throw new Error(
+                createFailureDebug(
+                  'upload-attachment',
+                  `Attachment ${attachment.name} is stale and cannot be re-uploaded`,
+                  [String(error)]
+                ).message
               );
-              setFailureDebug(debug);
-              throw new Error(debug.message);
             }
           }
         }
 
         if (!uriInfo.normalizedUri) {
           updateAttachmentStatus(attachment.id, 'error');
-          const debug = createFailureDebug(
-            'upload-attachment',
-            `Attachment URI missing for ${attachment.name}`,
-            [JSON.stringify(uriInfo, null, 2)]
+          throw new Error(
+            createFailureDebug(
+              'upload-attachment',
+              `Attachment URI missing for ${attachment.name}`,
+              [JSON.stringify(uriInfo, null, 2)]
+            ).message
           );
-          setFailureDebug(debug);
-          throw new Error(debug.message);
         }
 
-        try {
-          updateAttachmentStatus(
-            attachment.id,
-            forceRefresh ? 'retrying' : 'uploading'
-          );
-          const result = await uploadAttachment({
+        updateAttachmentStatus(attachment.id, forceRefresh ? 'retrying' : 'uploading', 0);
+        const result = await uploadAttachment(
+          {
             uri: uriInfo.normalizedUri,
             name: attachment.name,
             kind: attachment.kind,
             mimeType: attachment.mimeType,
-          });
-          updateAttachmentStatus(attachment.id, 'uploaded');
-          return {
-            ...attachment,
-            uri: uriInfo.normalizedUri,
-            uploadId: result.uploadId,
-            url: result.url || null,
-            size: result.size || null,
-            status: 'uploaded',
-          } satisfies SessionAttachment;
-        } catch (error) {
-          updateAttachmentStatus(attachment.id, 'error');
-          const debug = createFailureDebug(
-            'upload-attachment',
-            `Attachment upload failed for ${attachment.name}`,
-            [JSON.stringify(uriInfo, null, 2), String(error)]
-          );
-          setFailureDebug(debug);
-          throw error;
-        }
+          },
+          {
+            onProgress: (progressPct) => {
+              updateAttachmentStatus(attachment.id, 'uploading', progressPct);
+            },
+          }
+        );
+        updateAttachmentStatus(attachment.id, 'uploaded', 100);
+        return {
+          ...attachment,
+          uri: uriInfo.normalizedUri,
+          uploadId: result.uploadId,
+          url: result.url || null,
+          size: result.size || null,
+          status: 'uploaded',
+          progressPct: 100,
+        } satisfies SessionAttachment;
       })
     );
 
     setAttachments(resolved);
-    await persistState(messages);
     return resolved;
   };
 
+  const cancelStreaming = () => {
+    abortControllerRef.current?.abort();
+  };
+
   const sendMessage = async (prompt: string) => {
+    const rollover = messages.length >= MAX_MESSAGES_PER_SESSION;
+    const activeSessionId = rollover ? createSessionId() : sessionId;
+    const baseMessages = rollover ? [] : messages;
     const draftUserMsg: Message = {
-      id: Date.now().toString(),
+      id: `${Date.now()}_user`,
       role: 'user',
       content: prompt,
       timestamp: new Date(),
       attachments: [],
     };
+    const optimisticMessages = [...baseMessages, draftUserMsg];
 
-    const optimisticMessages = [...messages, draftUserMsg];
+    if (rollover) {
+      setSessionId(activeSessionId);
+      setMessages([]);
+      setAttachments([]);
+      setRolloverNotice(
+        `Message cap reached (${MAX_MESSAGES_PER_SESSION}). Started a fresh chat so your older thread stays intact.`
+      );
+    } else {
+      setRolloverNotice(null);
+    }
+
     setMessages(optimisticMessages);
     setIsLoading(true);
     setFailureDebug(null);
 
     try {
-      let readyAttachments = await ensureUploadedAttachments();
-      const userMsg: Message = {
-        ...draftUserMsg,
-        attachments: readyAttachments,
-      };
-      const messagesWithUser = [...messages, userMsg];
+      const readyAttachments = await ensureUploadedAttachments();
+      const userMsg: Message = { ...draftUserMsg, attachments: readyAttachments };
+      const messagesWithUser = [...baseMessages, userMsg];
       setMessages(messagesWithUser);
-      await persistState(messagesWithUser);
+      await persistState(activeSessionId, messagesWithUser);
 
-      let response: ChatResponse;
-      try {
-        response = await apiSendMessage({
+      const assistantId = `${Date.now()}_assistant`;
+      const streamingPlaceholder: Message = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        attachments: [],
+      };
+      setMessages([...messagesWithUser, streamingPlaceholder]);
+
+      let finalAssistantText = '';
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      setIsStreaming(streamingEnabled);
+
+      if (!streamingEnabled) {
+        const { sendMessage: sendMessageOnce } = await import('../lib/api');
+        const fallback = await sendMessageOnce({
           messages: toSessionMessages(messagesWithUser),
           model,
           systemPrompt,
           temperature: DEFAULT_TEMPERATURE,
           attachments: toAttachmentReferences(readyAttachments),
+          webSearch: webSearchEnabled,
         });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (msg.includes('Upload not found') && readyAttachments.length > 0) {
-          readyAttachments = await ensureUploadedAttachments(true);
-          const retriedUserMsg: Message = {
-            ...userMsg,
-            attachments: readyAttachments,
-          };
-          const retriedMessagesWithUser = [...messages, retriedUserMsg];
-          setMessages(retriedMessagesWithUser);
-          await persistState(retriedMessagesWithUser);
-          response = await apiSendMessage({
-            messages: toSessionMessages(retriedMessagesWithUser),
+        finalAssistantText = fallback.message || 'No response';
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === assistantId ? { ...item, content: finalAssistantText } : item
+          )
+        );
+      } else {
+        await streamMessage(
+          {
+            messages: toSessionMessages(messagesWithUser),
             model,
             systemPrompt,
             temperature: DEFAULT_TEMPERATURE,
             attachments: toAttachmentReferences(readyAttachments),
-          });
-        } else {
-          throw error;
-        }
+            webSearch: webSearchEnabled,
+          },
+          {
+            onDelta: (text) => {
+              finalAssistantText += text;
+              setMessages((prev) =>
+                prev.map((item) =>
+                  item.id === assistantId
+                    ? { ...item, content: finalAssistantText }
+                    : item
+                )
+              );
+            },
+            onDone: (message) => {
+              finalAssistantText = message || finalAssistantText || 'No response';
+              setMessages((prev) =>
+                prev.map((item) =>
+                  item.id === assistantId
+                    ? { ...item, content: finalAssistantText }
+                    : item
+                )
+              );
+            },
+          },
+          { signal: controller.signal }
+        );
       }
 
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: response.message || 'No response',
-        timestamp: new Date(),
-        attachments: [],
-      };
-
-      const finalMessages = [...messagesWithUser, assistantMsg];
+      const finalMessages = [
+        ...messagesWithUser,
+        { ...streamingPlaceholder, content: finalAssistantText || 'No response' },
+      ];
       setMessages(finalMessages);
       setAttachments([]);
-      await persistState(finalMessages);
+      await persistState(activeSessionId, finalMessages);
     } catch (error) {
-      console.error('Error sending message:', error);
-      const msg = error instanceof Error ? error.message : String(error);
-      if (!failureDebug) {
-        setFailureDebug(
-          createFailureDebug('send-message', 'Chat request failed', [
-            `sessionId=${sessionId}`,
+      const isAbort = error instanceof Error && error.name === 'AbortError';
+      const msg = isAbort
+        ? 'Streaming cancelled.'
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      if (!isAbort) {
+        console.error('Error sending message:', error);
+      }
+      setFailureDebug(
+        createFailureDebug(
+          'send-message',
+          isAbort ? 'Stream cancelled' : 'Chat request failed',
+          [
+            `sessionId=${activeSessionId}`,
             `model=${model}`,
             `attachments=${attachments.length}`,
             msg,
-          ])
-        );
-      }
+          ]
+        )
+      );
       const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `${Date.now()}_error`,
         role: 'assistant',
-        content: `Error: ${msg}`,
+        content: isAbort ? 'Streaming stopped.' : `Error: ${msg}`,
         timestamp: new Date(),
         attachments: [],
       };
       const finalMessages = [...optimisticMessages, errorMsg];
       setMessages(finalMessages);
-      try {
-        await persistState(finalMessages);
-      } catch (persistError) {
-        console.warn('Failed to persist error state', persistError);
+      await persistState(activeSessionId, finalMessages);
+      if (!isAbort) {
+        throw error;
       }
-      throw error;
     } finally {
+      abortControllerRef.current = null;
+      setIsStreaming(false);
       setIsLoading(false);
     }
   };
 
   const startNewChat = () => {
-    const nextSessionId = createSessionId();
-    setSessionId(nextSessionId);
+    setSessionId(createSessionId());
     setMessages([]);
     setAttachments([]);
-    setModel(DEFAULT_MODEL);
-    setPresetId(DEFAULT_PRESET);
-    setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
     setFailureDebug(null);
     setInitialized(true);
   };
@@ -445,10 +498,16 @@ export function UseChat(options: UseChatOptions = {}) {
     model,
     presetId,
     systemPrompt,
+    webSearchEnabled,
+    streamingEnabled,
+    rolloverNotice,
     isLoading,
     isHydrating,
+    isStreaming,
     failureDebug,
+    maxMessagesPerSession: MAX_MESSAGES_PER_SESSION,
     sendMessage,
+    cancelStreaming,
     startNewChat,
     addAttachment,
     removeAttachment,
@@ -456,5 +515,8 @@ export function UseChat(options: UseChatOptions = {}) {
     setModel,
     setPresetId,
     setSystemPrompt,
+    setWebSearchEnabled,
+    setStreamingEnabled,
+    setRolloverNotice,
   };
 }

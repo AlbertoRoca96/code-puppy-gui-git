@@ -99,7 +99,9 @@ export async function loadStoredSession(): Promise<SupabaseAuthSession | null> {
   }
 }
 
-export async function saveStoredSession(session: SupabaseAuthSession | null): Promise<void> {
+export async function saveStoredSession(
+  session: SupabaseAuthSession | null
+): Promise<void> {
   if (!session) {
     await deleteStoredValue(AUTH_STORAGE_KEY);
     return;
@@ -109,7 +111,9 @@ export async function saveStoredSession(session: SupabaseAuthSession | null): Pr
 
 function normalizeSession(session: SupabaseAuthSession): SupabaseAuthSession {
   const expiresIn = (session as any).expires_in;
-  const expiresAt = session.expires_at || (expiresIn ? Math.floor(Date.now() / 1000) + Number(expiresIn) : undefined);
+  const expiresAt =
+    session.expires_at ||
+    (expiresIn ? Math.floor(Date.now() / 1000) + Number(expiresIn) : undefined);
   return {
     ...session,
     expires_at: expiresAt,
@@ -136,7 +140,10 @@ export function toFriendlyAuthError(error: unknown): string {
   return message;
 }
 
-export async function signInWithPassword(email: string, password: string): Promise<SupabaseAuthSession> {
+export async function signInWithPassword(
+  email: string,
+  password: string
+): Promise<SupabaseAuthSession> {
   const data = normalizeSession(
     (await authRequest('/auth/v1/token?grant_type=password', {
       method: 'POST',
@@ -147,7 +154,10 @@ export async function signInWithPassword(email: string, password: string): Promi
   return data;
 }
 
-export async function signUpWithPassword(email: string, password: string): Promise<AuthActionResult> {
+export async function signUpWithPassword(
+  email: string,
+  password: string
+): Promise<AuthActionResult> {
   const data = normalizeSession(
     (await authRequest('/auth/v1/signup', {
       method: 'POST',
@@ -165,7 +175,8 @@ export async function signUpWithPassword(email: string, password: string): Promi
   return {
     session: null,
     requiresEmailConfirmation: true,
-    message: 'Signup succeeded. Check your email and confirm your account before signing in.',
+    message:
+      'Signup succeeded. Check your email and confirm your account before signing in.',
   };
 }
 
@@ -183,7 +194,9 @@ export async function signOut(): Promise<void> {
   await saveStoredSession(null);
 }
 
-export async function refreshStoredSession(force = false): Promise<SupabaseAuthSession | null> {
+export async function refreshStoredSession(
+  force = false
+): Promise<SupabaseAuthSession | null> {
   const current = await loadStoredSession();
   if (!current?.refresh_token) {
     await saveStoredSession(null);
@@ -240,7 +253,9 @@ export async function sendPasswordResetEmail(email: string): Promise<void> {
   });
 }
 
-export async function completeAuthFromUrl(url: string): Promise<{ success: boolean; message: string }> {
+export async function completeAuthFromUrl(
+  url: string
+): Promise<{ success: boolean; message: string }> {
   try {
     const parsed = new URL(url);
     const code = parsed.searchParams.get('code');
@@ -262,7 +277,11 @@ export async function completeAuthFromUrl(url: string): Promise<{ success: boole
     const refresh_token = hashParams.get('refresh_token');
     if (access_token && refresh_token) {
       await saveStoredSession(
-        normalizeSession({ access_token, refresh_token, token_type: 'bearer' } as SupabaseAuthSession)
+        normalizeSession({
+          access_token,
+          refresh_token,
+          token_type: 'bearer',
+        } as SupabaseAuthSession)
       );
       return { success: true, message: 'Auth completed successfully.' };
     }

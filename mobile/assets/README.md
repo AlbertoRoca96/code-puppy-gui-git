@@ -10,6 +10,7 @@ Get free icons from: https://expo.dev/pwn
 For the Code Puppy app, use a cute puppy emoji or illustration.
 
 Example:
+
 - Use 🐶 emoji with a gradient background
 - Or a stylish puppy illustration
 

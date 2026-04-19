@@ -40,7 +40,7 @@ def append_multimodal_images(messages: list[dict[str, Any]], records: list[dict[
     return updated
 
 
-async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple[str, str, dict[str, str], dict[str, Any]]:
+async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple[str, str, dict[str, str], dict[str, Any], dict[str, Any]]:
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages cannot be empty")
     configured_model = payload.model or os.environ.get("CODE_PUPPY_CHAT_MODEL", "hf:zai-org/GLM-4.7")
@@ -77,12 +77,38 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
         if url_context:
             chat_messages.append({"role": "system", "content": "Fetched URL context:\n\n" + url_context})
 
+    search_debug: dict[str, Any] = {
+        "enabled": bool(payload.webSearch),
+        "provider": "duckduckgo",
+        "used": False,
+        "query": None,
+        "resultCount": 0,
+        "summary": "Web search disabled for this request.",
+    }
     if payload.webSearch:
         last_user_message = next((m for m in reversed(payload.messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), None)
         if last_user_message:
-            search_context = await perform_web_search(str(last_user_message.get("content") or ""))
+            search_result = await perform_web_search(str(last_user_message.get("content") or ""))
+            search_debug = {
+                "enabled": True,
+                "provider": search_result.get("provider") or "duckduckgo",
+                "used": bool(search_result.get("used")),
+                "query": search_result.get("query"),
+                "resultCount": int(search_result.get("resultCount") or 0),
+                "summary": str(search_result.get("summary") or ""),
+            }
+            search_context = str(search_result.get("context") or "")
             if search_context:
                 chat_messages.append({"role": "system", "content": search_context})
+        else:
+            search_debug = {
+                "enabled": True,
+                "provider": "duckduckgo",
+                "used": False,
+                "query": None,
+                "resultCount": 0,
+                "summary": "Web search was enabled, but no user message was available to search.",
+            }
 
     for message in payload.messages:
         role = message.get("role")
@@ -98,11 +124,11 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
         "stream": False,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    return base_url, forwarded_model, headers, request_body
+    return base_url, forwarded_model, headers, request_body, search_debug
 
 
 async def invoke_chat(payload: ChatRequest, user_id: str | None = None) -> dict[str, Any]:
-    base_url, forwarded_model, headers, request_body = await build_chat_request(payload, user_id)
+    base_url, forwarded_model, headers, request_body, search_debug = await build_chat_request(payload, user_id)
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
         try:
             response = await client.post(base_url, headers=headers, json=request_body)
@@ -114,11 +140,11 @@ async def invoke_chat(payload: ChatRequest, user_id: str | None = None) -> dict[
     data = response.json()
     choices = data.get("choices") or []
     message_text = choices[0].get("message", {}).get("content", "") if choices else ""
-    return {"message": message_text, "raw": data, "usage": data.get("usage", {}), "model": forwarded_model}
+    return {"message": message_text, "raw": data, "usage": data.get("usage", {}), "model": forwarded_model, "search": search_debug}
 
 
 async def stream_chat(payload: ChatRequest, user_id: str | None = None) -> AsyncIterator[dict[str, Any]]:
-    base_url, forwarded_model, headers, request_body = await build_chat_request(payload, user_id)
+    base_url, forwarded_model, headers, request_body, search_debug = await build_chat_request(payload, user_id)
     request_body["stream"] = True
     full_text = ""
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
@@ -143,4 +169,4 @@ async def stream_chat(payload: ChatRequest, user_id: str | None = None) -> Async
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text or exc.response.reason_phrase) from exc
         except httpx.RequestError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
-    yield {"event": "done", "content": full_text, "model": forwarded_model}
+    yield {"event": "done", "content": full_text, "model": forwarded_model, "search": search_debug}

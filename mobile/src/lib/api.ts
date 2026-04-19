@@ -107,11 +107,21 @@ export interface ChatRequestInput {
   }[];
 }
 
+export interface SearchDebugInfo {
+  enabled: boolean;
+  provider?: string | null;
+  used: boolean;
+  query?: string | null;
+  resultCount?: number;
+  summary?: string | null;
+}
+
 export interface ChatResponse {
   message: string;
   raw?: any;
   usage?: any;
   model?: string;
+  search?: SearchDebugInfo;
 }
 
 export async function sendMessage(input: ChatRequestInput): Promise<ChatResponse> {
@@ -131,6 +141,7 @@ export async function sendMessage(input: ChatRequestInput): Promise<ChatResponse
     raw: raw.raw,
     usage: raw.usage,
     model: raw.model,
+    search: raw.search,
   };
 }
 
@@ -138,7 +149,7 @@ export async function streamMessage(
   input: ChatRequestInput,
   handlers: {
     onDelta: (text: string) => void;
-    onDone: (message: string, model?: string) => void;
+    onDone: (message: string, model?: string, search?: SearchDebugInfo) => void;
   },
   options: {
     signal?: AbortSignal;
@@ -214,13 +225,14 @@ export async function streamMessage(
         event?: string;
         content?: string;
         model?: string;
+        search?: SearchDebugInfo;
       };
       if (event.event === 'delta' && event.content) {
         fullText += event.content;
         handlers.onDelta(event.content);
       }
       if (event.event === 'done') {
-        handlers.onDone(event.content || fullText, event.model);
+        handlers.onDone(event.content || fullText, event.model, event.search);
       }
     }
   }
@@ -236,8 +248,9 @@ export async function streamMessage(
         event?: string;
         content?: string;
         model?: string;
+        search?: SearchDebugInfo;
       };
-      handlers.onDone(event.content || fullText, event.model);
+      handlers.onDone(event.content || fullText, event.model, event.search);
       return;
     }
   }

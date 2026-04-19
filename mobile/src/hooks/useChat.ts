@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   getUpload,
+  SearchDebugInfo,
   sendMessage as sendMessageOnce,
   streamMessage,
   uploadAttachment,
@@ -33,6 +34,14 @@ export interface FailureDebugInfo {
   message: string;
   details: string[];
   timestamp: string;
+}
+
+function sanitizeAssistantOutput(content: string): string {
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\/?think>/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 interface UseChatOptions {
@@ -96,6 +105,7 @@ export function UseChat(options: UseChatOptions = {}) {
   const [initialized, setInitialized] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [failureDebug, setFailureDebug] = useState<FailureDebugInfo | null>(null);
+  const [lastSearchDebug, setLastSearchDebug] = useState<SearchDebugInfo | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -356,6 +366,7 @@ export function UseChat(options: UseChatOptions = {}) {
     setMessages(optimisticMessages);
     setIsLoading(true);
     setFailureDebug(null);
+    setLastSearchDebug(null);
 
     try {
       const readyAttachments = await ensureUploadedAttachments();
@@ -388,7 +399,8 @@ export function UseChat(options: UseChatOptions = {}) {
           attachments: toAttachmentReferences(readyAttachments),
           webSearch: webSearchEnabled,
         });
-        finalAssistantText = fallback.message || 'No response';
+        finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
+        setLastSearchDebug(fallback.search || null);
         setMessages((prev) =>
           prev.map((item) =>
             item.id === assistantId ? { ...item, content: finalAssistantText } : item
@@ -408,16 +420,20 @@ export function UseChat(options: UseChatOptions = {}) {
             {
               onDelta: (text) => {
                 finalAssistantText += text;
+                const sanitizedPreview = sanitizeAssistantOutput(finalAssistantText);
                 setMessages((prev) =>
                   prev.map((item) =>
                     item.id === assistantId
-                      ? { ...item, content: finalAssistantText }
+                      ? { ...item, content: sanitizedPreview }
                       : item
                   )
                 );
               },
-              onDone: (message) => {
-                finalAssistantText = message || finalAssistantText || 'No response';
+              onDone: (message, _model, search) => {
+                finalAssistantText = sanitizeAssistantOutput(
+                  message || finalAssistantText || 'No response'
+                );
+                setLastSearchDebug(search || null);
                 setMessages((prev) =>
                   prev.map((item) =>
                     item.id === assistantId
@@ -443,7 +459,8 @@ export function UseChat(options: UseChatOptions = {}) {
             attachments: toAttachmentReferences(readyAttachments),
             webSearch: webSearchEnabled,
           });
-          finalAssistantText = fallback.message || 'No response';
+          finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
+          setLastSearchDebug(fallback.search || null);
           setMessages((prev) =>
             prev.map((item) =>
               item.id === assistantId ? { ...item, content: finalAssistantText } : item
@@ -454,7 +471,10 @@ export function UseChat(options: UseChatOptions = {}) {
 
       const finalMessages = [
         ...messagesWithUser,
-        { ...streamingPlaceholder, content: finalAssistantText || 'No response' },
+        {
+          ...streamingPlaceholder,
+          content: sanitizeAssistantOutput(finalAssistantText || 'No response'),
+        },
       ];
       setMessages(finalMessages);
       setAttachments([]);
@@ -541,6 +561,7 @@ export function UseChat(options: UseChatOptions = {}) {
     isHydrating,
     isStreaming,
     failureDebug,
+    lastSearchDebug,
     maxMessagesPerSession: MAX_MESSAGES_PER_SESSION,
     sendMessage,
     cancelStreaming,

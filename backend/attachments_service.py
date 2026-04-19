@@ -265,10 +265,17 @@ async def fetch_url_context(urls: list[str]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
-async def perform_web_search(query: str) -> str:
+async def perform_web_search(query: str) -> dict[str, Any]:
     clean_query = (query or "").strip()
     if not clean_query:
-        return ""
+        return {
+            "provider": "duckduckgo",
+            "query": clean_query,
+            "used": False,
+            "resultCount": 0,
+            "context": "",
+            "summary": "Search skipped because the query was empty.",
+        }
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
         response = await client.get(
             "https://api.duckduckgo.com/",
@@ -279,14 +286,26 @@ async def perform_web_search(query: str) -> str:
         raise HTTPException(status_code=502, detail=f"Web search failed: {response.text or response.reason_phrase}")
     data = response.json()
     lines: list[str] = []
+    result_count = 0
     abstract = str(data.get("AbstractText") or "").strip()
     if abstract:
         lines.append(f"Abstract: {abstract}")
+        result_count += 1
     for item in (data.get("RelatedTopics") or [])[:8]:
         if isinstance(item, dict):
             if item.get("Text") and item.get("FirstURL"):
                 lines.append(f"- {item['Text']} ({item['FirstURL']})")
+                result_count += 1
             for nested in (item.get("Topics") or [])[:4]:
                 if nested.get("Text") and nested.get("FirstURL"):
                     lines.append(f"- {nested['Text']} ({nested['FirstURL']})")
-    return "Web search results:\n" + "\n".join(lines) if lines else ""
+                    result_count += 1
+    context = "Web search results:\n" + "\n".join(lines) if lines else ""
+    return {
+        "provider": "duckduckgo",
+        "query": clean_query,
+        "used": bool(context),
+        "resultCount": result_count,
+        "context": context,
+        "summary": f"{result_count} search result snippets attached to the prompt." if context else "No search results were returned for this query.",
+    }

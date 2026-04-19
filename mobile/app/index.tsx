@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  FlatList,
   Keyboard,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -84,6 +85,7 @@ export default function ChatScreen() {
     isLoading,
     isHydrating,
     failureDebug,
+    lastSearchDebug,
     maxMessagesPerSession,
     streamingEnabled,
     rolloverNotice,
@@ -111,7 +113,7 @@ export default function ChatScreen() {
   const [showModelControls, setShowModelControls] = useState(false);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
-  const scrollViewRef = useRef<ScrollView | null>(null);
+  const messageListRef = useRef<FlatList<any> | null>(null);
   const previousMessageCountRef = useRef(0);
   const deviceUi = useDeviceUi();
 
@@ -238,17 +240,8 @@ export default function ChatScreen() {
 
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
-      scrollViewRef.current?.scrollToEnd({ animated });
+      messageListRef.current?.scrollToEnd({ animated });
     });
-  };
-
-  const handleMessagesContentSizeChange = () => {
-    // Intentionally empty. Auto-scroll is managed in a targeted effect so
-    // scrolling doesn't get hijacked by every layout/content recalculation.
-  };
-
-  const handleMessagesLayout = () => {
-    // Intentionally empty. Let the user scroll like a grown-up.
   };
 
   const handleMessagesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -274,6 +267,52 @@ export default function ChatScreen() {
 
     previousMessageCountRef.current = messages.length;
   }, [isNearBottom, messages.length]);
+
+  const renderMessageItem = ({ item }: { item: (typeof messages)[number] }) => (
+    <View
+      style={[
+        styles.bubble,
+        item.role === 'user' ? styles.userBubble : styles.assistantBubble,
+      ]}
+    >
+      {item.attachments?.length ? (
+        <View style={styles.messageAttachments}>
+          {item.attachments.map((attachment) => (
+            <View key={attachment.id} style={styles.messageAttachmentChip}>
+              <Text style={styles.messageAttachmentText}>
+                {attachment.kind === 'image' ? '🖼' : '📎'} {attachment.name}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <Text
+        selectable
+        style={item.role === 'user' ? styles.userText : styles.assistantText}
+      >
+        {item.content}
+      </Text>
+    </View>
+  );
+
+  const renderMessagesEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyText}>
+        {isHydrating
+          ? 'Loading chat history…'
+          : 'Woof! System online. Ready for code, files, and chaos.'}
+      </Text>
+    </View>
+  );
+
+  const renderMessagesFooter = () => {
+    if (!isStreaming) return <View style={styles.messagesFooterSpacer} />;
+    return (
+      <View style={styles.typingRow}>
+        <Text style={styles.typingText}>Code Puppy is typing…</Text>
+      </View>
+    );
+  };
 
   if (!authChecked) {
     return null;
@@ -353,6 +392,18 @@ export default function ChatScreen() {
                   <Text style={styles.sessionText}>
                     Web search: {webSearchEnabled ? 'on' : 'off'}
                   </Text>
+                  {lastSearchDebug ? (
+                    <Text style={styles.sessionText}>
+                      Search debug: {lastSearchDebug.used ? 'used' : 'not used'}
+                      {lastSearchDebug.resultCount
+                        ? ` · ${lastSearchDebug.resultCount} results`
+                        : ''}
+                      {lastSearchDebug.provider ? ` · ${lastSearchDebug.provider}` : ''}
+                    </Text>
+                  ) : null}
+                  {lastSearchDebug?.summary ? (
+                    <Text style={styles.sessionText}>{lastSearchDebug.summary}</Text>
+                  ) : null}
                   <Text style={styles.status}>{statusText}</Text>
                 </>
               ) : (
@@ -524,63 +575,22 @@ export default function ChatScreen() {
               deviceUi.isWide && styles.webChatWrapper,
             ]}
           >
-            <ScrollView
-              ref={scrollViewRef}
+            <FlatList
+              ref={messageListRef}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              renderItem={renderMessageItem}
               style={styles.messages}
-              contentContainerStyle={
-                messages.length === 0 ? styles.emptyContainer : styles.messagesContent
-              }
+              contentContainerStyle={styles.messagesContent}
+              ListEmptyComponent={renderMessagesEmpty}
+              ListFooterComponent={renderMessagesFooter}
               keyboardShouldPersistTaps="always"
               keyboardDismissMode="interactive"
               nestedScrollEnabled
-              onContentSizeChange={handleMessagesContentSizeChange}
-              onLayout={handleMessagesLayout}
               onScroll={handleMessagesScroll}
               onScrollBeginDrag={handleMessagesScrollBeginDrag}
               scrollEventThrottle={16}
-            >
-              {messages.length === 0 ? (
-                <Text style={styles.emptyText}>
-                  {isHydrating
-                    ? 'Loading chat history…'
-                    : 'Woof! System online. Ready for code, files, and chaos.'}
-                </Text>
-              ) : (
-                messages.map((msg) => (
-                  <View
-                    key={msg.id}
-                    style={[
-                      styles.bubble,
-                      msg.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                    ]}
-                  >
-                    {msg.attachments?.length ? (
-                      <View style={styles.messageAttachments}>
-                        {msg.attachments.map((attachment) => (
-                          <View key={attachment.id} style={styles.messageAttachmentChip}>
-                            <Text style={styles.messageAttachmentText}>
-                              {attachment.kind === 'image' ? '🖼' : '📎'}{' '}
-                              {attachment.name}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-                    <Text
-                      selectable
-                      style={msg.role === 'user' ? styles.userText : styles.assistantText}
-                    >
-                      {msg.content}
-                    </Text>
-                  </View>
-                ))
-              )}
-              {isStreaming ? (
-                <View style={styles.typingRow}>
-                  <Text style={styles.typingText}>Code Puppy is typing…</Text>
-                </View>
-              ) : null}
-            </ScrollView>
+            />
           </View>
 
           <View
@@ -921,10 +931,14 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 20,
   },
+  messagesFooterSpacer: {
+    height: 12,
+  },
   emptyContainer: {
-    flexGrow: 1,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    minHeight: 220,
   },
   emptyText: {
     fontSize: 14,

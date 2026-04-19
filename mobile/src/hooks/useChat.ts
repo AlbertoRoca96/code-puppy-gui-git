@@ -20,6 +20,7 @@ import {
   SessionCitation,
   SessionMessage,
   SessionSnapshot,
+  SessionToolMeta,
 } from '../lib/sessions';
 
 export interface Message {
@@ -30,6 +31,7 @@ export interface Message {
   attachments?: SessionAttachment[];
   citations?: SessionCitation[];
   fetchedPages?: SessionCitation[];
+  toolMeta?: SessionToolMeta;
 }
 
 export interface FailureDebugInfo {
@@ -65,6 +67,7 @@ function toSessionMessages(messages: Message[]): SessionMessage[] {
     attachments: message.attachments || undefined,
     citations: message.citations || undefined,
     fetchedPages: message.fetchedPages || undefined,
+    toolMeta: message.toolMeta || undefined,
   }));
 }
 
@@ -79,6 +82,7 @@ function toUiMessages(messages: SessionMessage[]): Message[] {
       attachments: message.attachments || [],
       citations: message.citations || [],
       fetchedPages: message.fetchedPages || [],
+      toolMeta: message.toolMeta,
     }));
 }
 
@@ -89,6 +93,16 @@ function toSessionCitations(citations?: SearchDebugInfo['sources']): SessionCita
       title: String(citation.title || citation.url || '').trim(),
     }))
     .filter((citation) => citation.url);
+}
+
+function toToolMeta(search?: SearchDebugInfo | null): SessionToolMeta {
+  return {
+    usedWebSearch: Boolean(search?.used && !search?.shortCircuited),
+    answeredFromRuntime: Boolean(search?.shortCircuited),
+    fetchedPageCount: Array.isArray(search?.fetchedPages)
+      ? search!.fetchedPages!.length
+      : 0,
+  };
 }
 
 function createFailureDebug(
@@ -400,12 +414,14 @@ export function UseChat(options: UseChatOptions = {}) {
         attachments: [],
         citations: [],
         fetchedPages: [],
+        toolMeta: undefined,
       };
       setMessages([...messagesWithUser, streamingPlaceholder]);
 
       let finalAssistantText = '';
       let finalAssistantCitations: SessionCitation[] = [];
       let finalAssistantFetchedPages: SessionCitation[] = [];
+      let finalAssistantToolMeta: SessionToolMeta | undefined;
       const controller = new AbortController();
       abortControllerRef.current = controller;
       setIsStreaming(streamingEnabled);
@@ -423,12 +439,20 @@ export function UseChat(options: UseChatOptions = {}) {
         setLastSearchDebug(fallback.search || null);
         const citations = toSessionCitations(fallback.search?.sources);
         const fetchedPages = toSessionCitations(fallback.search?.fetchedPages);
+        const toolMeta = toToolMeta(fallback.search);
         finalAssistantCitations = citations;
         finalAssistantFetchedPages = fetchedPages;
+        finalAssistantToolMeta = toolMeta;
         setMessages((prev) =>
           prev.map((item) =>
             item.id === assistantId
-              ? { ...item, content: finalAssistantText, citations, fetchedPages }
+              ? {
+                  ...item,
+                  content: finalAssistantText,
+                  citations,
+                  fetchedPages,
+                  toolMeta,
+                }
               : item
           )
         );
@@ -462,12 +486,20 @@ export function UseChat(options: UseChatOptions = {}) {
                 setLastSearchDebug(search || null);
                 const citations = toSessionCitations(search?.sources);
                 const fetchedPages = toSessionCitations(search?.fetchedPages);
+                const toolMeta = toToolMeta(search);
                 finalAssistantCitations = citations;
                 finalAssistantFetchedPages = fetchedPages;
+                finalAssistantToolMeta = toolMeta;
                 setMessages((prev) =>
                   prev.map((item) =>
                     item.id === assistantId
-                      ? { ...item, content: finalAssistantText, citations, fetchedPages }
+                      ? {
+                          ...item,
+                          content: finalAssistantText,
+                          citations,
+                          fetchedPages,
+                          toolMeta,
+                        }
                       : item
                   )
                 );
@@ -493,12 +525,20 @@ export function UseChat(options: UseChatOptions = {}) {
           setLastSearchDebug(fallback.search || null);
           const citations = toSessionCitations(fallback.search?.sources);
           const fetchedPages = toSessionCitations(fallback.search?.fetchedPages);
+          const toolMeta = toToolMeta(fallback.search);
           finalAssistantCitations = citations;
           finalAssistantFetchedPages = fetchedPages;
+          finalAssistantToolMeta = toolMeta;
           setMessages((prev) =>
             prev.map((item) =>
               item.id === assistantId
-                ? { ...item, content: finalAssistantText, citations, fetchedPages }
+                ? {
+                    ...item,
+                    content: finalAssistantText,
+                    citations,
+                    fetchedPages,
+                    toolMeta,
+                  }
                 : item
             )
           );
@@ -512,6 +552,7 @@ export function UseChat(options: UseChatOptions = {}) {
           content: sanitizeAssistantOutput(finalAssistantText || 'No response'),
           citations: finalAssistantCitations,
           fetchedPages: finalAssistantFetchedPages,
+          toolMeta: finalAssistantToolMeta,
         },
       ];
       setMessages(finalMessages);

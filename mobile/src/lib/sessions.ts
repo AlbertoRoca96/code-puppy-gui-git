@@ -5,12 +5,19 @@ export interface SessionCitation {
   title: string;
 }
 
+export interface SessionToolMeta {
+  usedWebSearch?: boolean;
+  answeredFromRuntime?: boolean;
+  fetchedPageCount?: number;
+}
+
 export interface SessionMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   attachments?: SessionAttachment[];
   citations?: SessionCitation[];
   fetchedPages?: SessionCitation[];
+  toolMeta?: SessionToolMeta;
 }
 
 export type AttachmentStatus =

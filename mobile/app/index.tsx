@@ -298,6 +298,38 @@ export default function ChatScreen() {
     }
   };
 
+  const renderToolBadges = (
+    toolMeta:
+      | {
+          usedWebSearch?: boolean;
+          answeredFromRuntime?: boolean;
+          fetchedPageCount?: number;
+        }
+      | undefined
+  ) => {
+    if (!toolMeta) return null;
+    const badges: string[] = [];
+    if (toolMeta.usedWebSearch) {
+      badges.push('Used web search');
+    }
+    if (toolMeta.answeredFromRuntime) {
+      badges.push('Answered from backend time');
+    }
+    if ((toolMeta.fetchedPageCount || 0) > 0) {
+      badges.push(`Fetched ${toolMeta.fetchedPageCount} pages`);
+    }
+    if (!badges.length) return null;
+    return (
+      <View style={styles.toolBadgeRow}>
+        {badges.map((badge) => (
+          <View key={badge} style={styles.toolBadge}>
+            <Text style={styles.toolBadgeText}>{badge}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
   const renderCitationGroup = (
     label: string,
     citations: { url: string; title: string }[] | undefined
@@ -342,6 +374,7 @@ export default function ChatScreen() {
           ))}
         </View>
       ) : null}
+      {item.role === 'assistant' ? renderToolBadges(item.toolMeta) : null}
       <Text
         selectable={Platform.OS !== 'android'}
         style={item.role === 'user' ? styles.userText : styles.assistantText}
@@ -1027,6 +1060,25 @@ const styles = StyleSheet.create({
     color: '#cbd5e1',
     fontSize: 12,
     fontWeight: '600',
+  },
+  toolBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  toolBadge: {
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#243041',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  toolBadgeText: {
+    color: '#cbd5e1',
+    fontSize: 11,
+    fontWeight: '700',
   },
   citationGroup: {
     marginTop: 10,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
 
@@ -31,6 +32,82 @@ def build_runtime_context() -> dict[str, str]:
         "timestampUtc": iso_timestamp,
         "dateUtc": now_utc.date().isoformat(),
         "message": message,
+    }
+
+
+def extract_latest_user_text(messages: list[dict[str, Any]]) -> str:
+    last_user_message = next(
+        (
+            m
+            for m in reversed(messages)
+            if m.get('role') == 'user' and isinstance(m.get('content'), str)
+        ),
+        None,
+    )
+    return str(last_user_message.get('content') or '').strip() if last_user_message else ''
+
+
+def is_runtime_info_request(query: str) -> bool:
+    normalized = re.sub(r'\s+', ' ', (query or '').strip().lower())
+    if not normalized:
+        return False
+    recency_markers = ('current', 'today', 'now', 'right now', 'currently')
+    time_targets = (
+        'date',
+        'time',
+        'year',
+        'month',
+        'day',
+        'what year is it',
+        'what time is it',
+        'what date is it',
+    )
+    asks_runtime = any(marker in normalized for marker in recency_markers) and any(
+        target in normalized for target in time_targets
+    )
+    direct_runtime_question = normalized in {
+        'date',
+        'time',
+        'current date',
+        'current time',
+        'current date and time',
+        'what year is it',
+        'what time is it',
+        'what date is it',
+    }
+    return asks_runtime or direct_runtime_question
+
+
+def build_runtime_short_circuit_response(payload: ChatRequest) -> dict[str, Any] | None:
+    latest_user_text = extract_latest_user_text(payload.messages)
+    if not is_runtime_info_request(latest_user_text):
+        return None
+    runtime_context = build_runtime_context()
+    message = (
+        'Authoritative server runtime answer:\n\n'
+        f"- Current server datetime (UTC): {runtime_context['timestampUtc']}\n"
+        f"- Current server date (UTC): {runtime_context['dateUtc']}\n\n"
+        'This answer was returned directly by the backend runtime context layer, '
+        'so it does not depend on model training cutoff or web-search interpretation.'
+    )
+    return {
+        'message': message,
+        'raw': {'source': 'backend-runtime-context'},
+        'usage': {},
+        'model': 'backend:runtime-context',
+        'search': {
+            'enabled': bool(payload.webSearch),
+            'provider': 'backend-runtime-context',
+            'used': True,
+            'query': latest_user_text,
+            'resultCount': 1,
+            'summary': 'Answered directly from authoritative backend UTC runtime context.',
+            'runtime': {
+                'timestampUtc': runtime_context['timestampUtc'],
+                'dateUtc': runtime_context['dateUtc'],
+            },
+            'shortCircuited': True,
+        },
     }
 
 
@@ -132,9 +209,9 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
         "summary": "Web search disabled for this request.",
     }
     if payload.webSearch:
-        last_user_message = next((m for m in reversed(payload.messages) if m.get("role") == "user" and isinstance(m.get("content"), str)), None)
-        if last_user_message:
-            search_result = await perform_web_search(str(last_user_message.get("content") or ""))
+        latest_user_text = extract_latest_user_text(payload.messages)
+        if latest_user_text:
+            search_result = await perform_web_search(latest_user_text)
             search_debug = {
                 "enabled": True,
                 "provider": search_result.get("provider") or "duckduckgo",
@@ -182,6 +259,9 @@ async def build_chat_request(payload: ChatRequest, user_id: str | None) -> tuple
 
 
 async def invoke_chat(payload: ChatRequest, user_id: str | None = None) -> dict[str, Any]:
+    short_circuit_response = build_runtime_short_circuit_response(payload)
+    if short_circuit_response is not None:
+        return short_circuit_response
     base_url, forwarded_model, headers, request_body, search_debug = await build_chat_request(payload, user_id)
     async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
         try:
@@ -198,6 +278,15 @@ async def invoke_chat(payload: ChatRequest, user_id: str | None = None) -> dict[
 
 
 async def stream_chat(payload: ChatRequest, user_id: str | None = None) -> AsyncIterator[dict[str, Any]]:
+    short_circuit_response = build_runtime_short_circuit_response(payload)
+    if short_circuit_response is not None:
+        yield {
+            'event': 'done',
+            'content': short_circuit_response['message'],
+            'model': short_circuit_response['model'],
+            'search': short_circuit_response['search'],
+        }
+        return
     base_url, forwarded_model, headers, request_body, search_debug = await build_chat_request(payload, user_id)
     request_body["stream"] = True
     full_text = ""

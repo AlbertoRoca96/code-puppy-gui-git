@@ -6,7 +6,7 @@ import re
 from html import unescape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 from fastapi import HTTPException
@@ -36,6 +36,14 @@ from backend.models import AttachmentRef
 from backend.upload_service import download_attachment_to_temp_file, find_upload_binary_file, load_upload_metadata, load_upload_metadata_async
 
 URL_PATTERN = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+DDG_RESULT_LINK_PATTERN = re.compile(
+    r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+DDG_RESULT_SNIPPET_PATTERN = re.compile(
+    r'<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>|<div[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def truncate_text(text: str, limit: int = MAX_ATTACHMENT_TEXT_CHARS) -> str:
@@ -265,56 +273,136 @@ async def fetch_url_context(urls: list[str]) -> str:
     return "\n\n---\n\n".join(sections)
 
 
+def normalize_duckduckgo_result_url(raw_url: str) -> str:
+    parsed = urlparse(raw_url)
+    if parsed.netloc.endswith('duckduckgo.com') and parsed.path.startswith('/l/'):
+        redirect_target = parse_qs(parsed.query).get('uddg', [''])[0]
+        if redirect_target:
+            return unquote(redirect_target)
+    return unescape(raw_url)
+
+
+def extract_instant_answer_results(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    lines: list[str] = []
+    urls: list[str] = []
+    abstract = str(data.get('AbstractText') or '').strip()
+    abstract_url = str(data.get('AbstractURL') or '').strip()
+    if abstract:
+        suffix = f' ({abstract_url})' if abstract_url else ''
+        lines.append(f'Abstract: {abstract}{suffix}')
+        if abstract_url:
+            urls.append(abstract_url)
+    for item in (data.get('RelatedTopics') or [])[:8]:
+        if not isinstance(item, dict):
+            continue
+        if item.get('Text') and item.get('FirstURL'):
+            lines.append(f"- {item['Text']} ({item['FirstURL']})")
+            urls.append(str(item['FirstURL']))
+        for nested in (item.get('Topics') or [])[:4]:
+            if nested.get('Text') and nested.get('FirstURL'):
+                lines.append(f"- {nested['Text']} ({nested['FirstURL']})")
+                urls.append(str(nested['FirstURL']))
+    return lines, urls
+
+
+def extract_html_search_results(html: str) -> tuple[list[str], list[str]]:
+    link_matches = DDG_RESULT_LINK_PATTERN.findall(html)
+    snippet_matches = DDG_RESULT_SNIPPET_PATTERN.findall(html)
+    lines: list[str] = []
+    urls: list[str] = []
+    for index, (raw_url, title_html) in enumerate(link_matches[:6]):
+        url = normalize_duckduckgo_result_url(raw_url)
+        if not str(url).startswith('http'):
+            continue
+        title = strip_html(title_html)
+        snippet_html = (
+            (snippet_matches[index][0] or snippet_matches[index][1])
+            if index < len(snippet_matches)
+            else ''
+        )
+        snippet = strip_html(snippet_html)
+        line = f'- {title or url}'
+        if snippet:
+            line += f': {snippet}'
+        line += f' ({url})'
+        lines.append(line)
+        urls.append(url)
+    return lines, urls
+
+
+def dedupe_urls(urls: list[str], limit: int = 4) -> list[str]:
+    deduped: list[str] = []
+    for url in urls:
+        if url and url not in deduped:
+            deduped.append(url)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
 async def perform_web_search(query: str) -> dict[str, Any]:
-    clean_query = (query or "").strip()
+    clean_query = (query or '').strip()
     if not clean_query:
         return {
-            "provider": "duckduckgo",
-            "query": clean_query,
-            "used": False,
-            "resultCount": 0,
-            "context": "",
-            "summary": "Search skipped because the query was empty.",
+            'provider': 'duckduckgo',
+            'query': clean_query,
+            'used': False,
+            'resultCount': 0,
+            'context': '',
+            'summary': 'Search skipped because the query was empty.',
         }
-    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
-        response = await client.get(
-            "https://api.duckduckgo.com/",
-            params={"q": clean_query, "format": "json", "no_redirect": 1, "no_html": 1},
-            headers={"User-Agent": "CodePuppyBot/1.0"},
-        )
-    if response.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"Web search failed: {response.text or response.reason_phrase}")
-    data = response.json()
+
     lines: list[str] = []
-    result_count = 0
-    abstract = str(data.get("AbstractText") or "").strip()
-    if abstract:
-        lines.append(f"Abstract: {abstract}")
-        result_count += 1
-    for item in (data.get("RelatedTopics") or [])[:8]:
-        if isinstance(item, dict):
-            if item.get("Text") and item.get("FirstURL"):
-                lines.append(f"- {item['Text']} ({item['FirstURL']})")
-                result_count += 1
-            for nested in (item.get("Topics") or [])[:4]:
-                if nested.get("Text") and nested.get("FirstURL"):
-                    lines.append(f"- {nested['Text']} ({nested['FirstURL']})")
-                    result_count += 1
-    context = (
-        f"Web search results (provider: DuckDuckGo Instant Answer, query: {clean_query}):\n"
-        + "\n".join(lines)
-        if lines
-        else ""
-    )
+    result_urls: list[str] = []
+    provider = 'duckduckgo-instant'
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
+        instant_error: str | None = None
+        try:
+            response = await client.get(
+                'https://api.duckduckgo.com/',
+                params={'q': clean_query, 'format': 'json', 'no_redirect': 1, 'no_html': 1},
+                headers={'User-Agent': 'CodePuppyBot/1.0'},
+            )
+            response.raise_for_status()
+            lines, result_urls = extract_instant_answer_results(response.json())
+        except Exception as exc:
+            instant_error = str(exc)
+
+        if not lines:
+            provider = 'duckduckgo-html'
+            try:
+                html_response = await client.get(
+                    'https://html.duckduckgo.com/html/',
+                    params={'q': clean_query},
+                    headers={'User-Agent': 'CodePuppyBot/1.0'},
+                )
+                html_response.raise_for_status()
+                lines, result_urls = extract_html_search_results(html_response.text)
+            except Exception as exc:
+                detail = instant_error or str(exc)
+                raise HTTPException(status_code=502, detail=f'Web search failed: {detail}') from exc
+
+    result_urls = dedupe_urls(result_urls, limit=3)
+    source_context = await fetch_url_context(result_urls) if result_urls else ''
+    context_sections: list[str] = []
+    if lines:
+        context_sections.append(
+            f"Web search results (provider: {provider}, query: {clean_query}):\n" + '\n'.join(lines)
+        )
+    if source_context:
+        context_sections.append('Fetched source excerpts from top search results:\n\n' + source_context)
+    context = '\n\n---\n\n'.join(context_sections)
+
     return {
-        "provider": "duckduckgo",
-        "query": clean_query,
-        "used": bool(context),
-        "resultCount": result_count,
-        "context": context,
-        "summary": (
-            f"{result_count} DuckDuckGo search result snippets attached to the prompt for query: {clean_query}."
+        'provider': provider,
+        'query': clean_query,
+        'used': bool(context),
+        'resultCount': len(lines),
+        'context': context,
+        'summary': (
+            f"{len(lines)} {provider} result snippets attached, plus fetched excerpts from {len(result_urls)} linked pages, for query: {clean_query}."
             if context
-            else f"No DuckDuckGo search results were returned for query: {clean_query}."
+            else f'No DuckDuckGo search results were returned for query: {clean_query}.'
         ),
     }

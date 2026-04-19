@@ -86,6 +86,17 @@ def test_build_chat_request_includes_web_search_and_url_context(monkeypatch):
     assert search_debug['runtime']['timestampUtc'].endswith('Z')
 
 
+def test_invoke_chat_short_circuits_runtime_question_without_provider_keys(monkeypatch):
+    payload = ChatRequest(
+        messages=[{'role': 'user', 'content': 'What is the current date and time?'}],
+        webSearch=True,
+    )
+    response = asyncio.run(provider_service.invoke_chat(payload, None))
+    assert response['model'] == 'backend:runtime-context'
+    assert 'Current server datetime (UTC)' in response['message']
+    assert response['search']['shortCircuited'] is True
+
+
 def test_build_chat_request_rejects_image_for_non_vision_model(monkeypatch):
     async def fake_attachments(*args, **kwargs):
         return [

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { getUpload, streamMessage, uploadAttachment } from '../lib/api';
+import {
+  getUpload,
+  sendMessage as sendMessageOnce,
+  streamMessage,
+  uploadAttachment,
+} from '../lib/api';
 import { toAttachmentReferences } from '../lib/attachments';
 import { normalizeDeviceFileUri } from '../lib/devicePaths';
 import { loadLocalSessionSnapshot, saveLocalSessionSnapshot } from '../lib/localSessions';
@@ -365,7 +370,6 @@ export function UseChat(options: UseChatOptions = {}) {
       setIsStreaming(streamingEnabled);
 
       if (!streamingEnabled) {
-        const { sendMessage: sendMessageOnce } = await import('../lib/api');
         const fallback = await sendMessageOnce({
           messages: toSessionMessages(messagesWithUser),
           model,
@@ -381,39 +385,61 @@ export function UseChat(options: UseChatOptions = {}) {
           )
         );
       } else {
-        await streamMessage(
-          {
+        try {
+          await streamMessage(
+            {
+              messages: toSessionMessages(messagesWithUser),
+              model,
+              systemPrompt,
+              temperature: DEFAULT_TEMPERATURE,
+              attachments: toAttachmentReferences(readyAttachments),
+              webSearch: webSearchEnabled,
+            },
+            {
+              onDelta: (text) => {
+                finalAssistantText += text;
+                setMessages((prev) =>
+                  prev.map((item) =>
+                    item.id === assistantId
+                      ? { ...item, content: finalAssistantText }
+                      : item
+                  )
+                );
+              },
+              onDone: (message) => {
+                finalAssistantText = message || finalAssistantText || 'No response';
+                setMessages((prev) =>
+                  prev.map((item) =>
+                    item.id === assistantId
+                      ? { ...item, content: finalAssistantText }
+                      : item
+                  )
+                );
+              },
+            },
+            { signal: controller.signal }
+          );
+        } catch (error) {
+          const isAbort = error instanceof Error && error.name === 'AbortError';
+          if (isAbort) {
+            throw error;
+          }
+          console.warn('Streaming failed; falling back to one-shot chat request', error);
+          const fallback = await sendMessageOnce({
             messages: toSessionMessages(messagesWithUser),
             model,
             systemPrompt,
             temperature: DEFAULT_TEMPERATURE,
             attachments: toAttachmentReferences(readyAttachments),
             webSearch: webSearchEnabled,
-          },
-          {
-            onDelta: (text) => {
-              finalAssistantText += text;
-              setMessages((prev) =>
-                prev.map((item) =>
-                  item.id === assistantId
-                    ? { ...item, content: finalAssistantText }
-                    : item
-                )
-              );
-            },
-            onDone: (message) => {
-              finalAssistantText = message || finalAssistantText || 'No response';
-              setMessages((prev) =>
-                prev.map((item) =>
-                  item.id === assistantId
-                    ? { ...item, content: finalAssistantText }
-                    : item
-                )
-              );
-            },
-          },
-          { signal: controller.signal }
-        );
+          });
+          finalAssistantText = fallback.message || 'No response';
+          setMessages((prev) =>
+            prev.map((item) =>
+              item.id === assistantId ? { ...item, content: finalAssistantText } : item
+            )
+          );
+        }
       }
 
       const finalMessages = [

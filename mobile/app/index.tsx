@@ -308,22 +308,46 @@ export default function ChatScreen() {
       | undefined
   ) => {
     if (!toolMeta) return null;
-    const badges: string[] = [];
+    const badges: { id: string; label: string; icon: string; tone: string }[] = [];
     if (toolMeta.usedWebSearch) {
-      badges.push('Used web search');
+      badges.push({
+        id: 'web-search',
+        label: 'Web search',
+        icon: '🌐',
+        tone: 'search',
+      });
     }
     if (toolMeta.answeredFromRuntime) {
-      badges.push('Answered from backend time');
+      badges.push({
+        id: 'backend-time',
+        label: 'Backend time',
+        icon: '⏱️',
+        tone: 'runtime',
+      });
     }
     if ((toolMeta.fetchedPageCount || 0) > 0) {
-      badges.push(`Fetched ${toolMeta.fetchedPageCount} pages`);
+      badges.push({
+        id: 'fetched-pages',
+        label: `${toolMeta.fetchedPageCount} pages`,
+        icon: '📄',
+        tone: 'pages',
+      });
     }
     if (!badges.length) return null;
     return (
       <View style={styles.toolBadgeRow}>
         {badges.map((badge) => (
-          <View key={badge} style={styles.toolBadge}>
-            <Text style={styles.toolBadgeText}>{badge}</Text>
+          <View
+            key={badge.id}
+            style={[
+              styles.toolBadge,
+              badge.tone === 'search' && styles.toolBadgeSearch,
+              badge.tone === 'runtime' && styles.toolBadgeRuntime,
+              badge.tone === 'pages' && styles.toolBadgePages,
+            ]}
+          >
+            <Text style={styles.toolBadgeIcon}>{badge.icon}</Text>
+            <Text style={styles.toolBadgeText}>{badge.label}</Text>
           </View>
         ))}
       </View>
@@ -1064,21 +1088,38 @@ const styles = StyleSheet.create({
   toolBadgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     marginBottom: 8,
   },
   toolBadge: {
-    backgroundColor: '#111827',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderWidth: 1,
-    borderColor: '#243041',
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  toolBadgeSearch: {
+    backgroundColor: '#0a1f1c',
+    borderColor: '#14532d',
+  },
+  toolBadgeRuntime: {
+    backgroundColor: '#23120a',
+    borderColor: '#92400e',
+  },
+  toolBadgePages: {
+    backgroundColor: '#141b2d',
+    borderColor: '#1d4ed8',
+  },
+  toolBadgeIcon: {
+    fontSize: 11,
   },
   toolBadgeText: {
-    color: '#cbd5e1',
-    fontSize: 11,
-    fontWeight: '700',
+    color: '#e2e8f0',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.2,
   },
   citationGroup: {
     marginTop: 10,

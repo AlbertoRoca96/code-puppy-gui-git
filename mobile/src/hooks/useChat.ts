@@ -59,6 +59,7 @@ const DEFAULT_SYSTEM_PROMPT =
   'You are Code Puppy on SYN GLM-4.7. Be concise, cite key assumptions, and end with an actionable checklist.';
 const DEFAULT_TEMPERATURE = 0.2;
 const MAX_MESSAGES_PER_SESSION = 200;
+const HANDOFF_WARNING_THRESHOLD = 195;
 
 function toSessionMessages(messages: Message[]): SessionMessage[] {
   return messages.map((message) => ({
@@ -116,6 +117,41 @@ function createFailureDebug(
 function isMeaningfulState(messages: Message[], composer = ''): boolean {
   if (messages.some((message) => message.content.trim())) return true;
   return Boolean(composer.trim());
+}
+
+function buildHandoffPrompt(messages: Message[]): string {
+  const recentMessages = messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-12)
+    .map((message) => `${message.role.toUpperCase()}: ${message.content.trim()}`)
+    .filter((line) => line.length > 0);
+
+  const checklist = messages
+    .filter((message) => message.role === 'assistant')
+    .slice(-6)
+    .flatMap((message) =>
+      message.content
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => /^[-*]|^\d+[.)]/.test(line))
+    )
+    .slice(-8);
+
+  return [
+    'We are continuing from a previous Code Puppy chat session that is nearing its message cap.',
+    'Please resume the conversation without repeating solved context unless it is necessary.',
+    '',
+    'Recent conversation excerpt:',
+    recentMessages.length ? recentMessages.join('\n\n') : 'No recent messages available.',
+    '',
+    'Potential active checklist items:',
+    checklist.length
+      ? checklist.join('\n')
+      : '- No explicit checklist items were captured.',
+    '',
+    'Open the next reply with: "Ah yes — we left off here. Let\'s continue."',
+    'Then continue helping based on the carried-over context above.',
+  ].join('\n');
 }
 
 export function UseChat(options: UseChatOptions = {}) {
@@ -369,10 +405,11 @@ export function UseChat(options: UseChatOptions = {}) {
     abortControllerRef.current?.abort();
   };
 
-  const sendMessage = async (prompt: string) => {
-    const rollover = messages.length >= MAX_MESSAGES_PER_SESSION;
-    const activeSessionId = rollover ? createSessionId() : sessionId;
-    const baseMessages = rollover ? [] : messages;
+  const executeSendMessage = async (
+    prompt: string,
+    activeSessionId: string,
+    baseMessages: Message[]
+  ) => {
     const draftUserMsg: Message = {
       id: `${Date.now()}_user`,
       role: 'user',
@@ -381,17 +418,6 @@ export function UseChat(options: UseChatOptions = {}) {
       attachments: [],
     };
     const optimisticMessages = [...baseMessages, draftUserMsg];
-
-    if (rollover) {
-      setSessionId(activeSessionId);
-      setMessages([]);
-      setAttachments([]);
-      setRolloverNotice(
-        `Message cap reached (${MAX_MESSAGES_PER_SESSION}). Started a fresh chat so your older thread stays intact.`
-      );
-    } else {
-      setRolloverNotice(null);
-    }
 
     setMessages(optimisticMessages);
     setIsLoading(true);
@@ -600,6 +626,29 @@ export function UseChat(options: UseChatOptions = {}) {
     }
   };
 
+  const sendMessage = async (prompt: string) => {
+    if (messages.length >= MAX_MESSAGES_PER_SESSION) {
+      throw new Error(
+        `This chat hit the ${MAX_MESSAGES_PER_SESSION}-message cap. Start a handoff to continue without losing context.`
+      );
+    }
+    setRolloverNotice(null);
+    await executeSendMessage(prompt, sessionId, messages);
+  };
+
+  const startHandoffChat = async () => {
+    const nextSessionId = createSessionId();
+    const handoffPrompt = buildHandoffPrompt(messages);
+    setSessionId(nextSessionId);
+    setMessages([]);
+    setAttachments([]);
+    setFailureDebug(null);
+    setRolloverNotice(
+      `Started a linked continuation chat before hitting the ${MAX_MESSAGES_PER_SESSION}-message cap.`
+    );
+    await executeSendMessage(handoffPrompt, nextSessionId, []);
+  };
+
   const startNewChat = () => {
     setSessionId(createSessionId());
     setMessages([]);
@@ -624,6 +673,10 @@ export function UseChat(options: UseChatOptions = {}) {
     () => deriveSessionTitle(toSessionMessages(messages)),
     [messages]
   );
+  const remainingMessages = Math.max(MAX_MESSAGES_PER_SESSION - messages.length, 0);
+  const handoffSuggested = messages.length >= HANDOFF_WARNING_THRESHOLD;
+  const handoffRequired = messages.length >= MAX_MESSAGES_PER_SESSION;
+  const handoffPromptPreview = useMemo(() => buildHandoffPrompt(messages), [messages]);
 
   return {
     sessionId,
@@ -642,7 +695,12 @@ export function UseChat(options: UseChatOptions = {}) {
     failureDebug,
     lastSearchDebug,
     maxMessagesPerSession: MAX_MESSAGES_PER_SESSION,
+    remainingMessages,
+    handoffSuggested,
+    handoffRequired,
+    handoffPromptPreview,
     sendMessage,
+    startHandoffChat,
     cancelStreaming,
     startNewChat,
     addAttachment,

@@ -13,6 +13,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   Linking,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -87,10 +88,15 @@ export default function ChatScreen() {
     failureDebug,
     lastSearchDebug,
     maxMessagesPerSession,
+    remainingMessages,
+    handoffSuggested,
+    handoffRequired,
+    handoffPromptPreview,
     streamingEnabled,
     rolloverNotice,
     isStreaming,
     sendMessage,
+    startHandoffChat,
     cancelStreaming,
     startNewChat,
     addAttachment,
@@ -159,6 +165,31 @@ export default function ChatScreen() {
       const msg = error instanceof Error ? error.message : String(error);
       setStatusText(`Send failed: ${msg}`);
     }
+  };
+
+  const handleStartHandoff = () => {
+    Alert.alert(
+      handoffRequired ? 'Chat limit reached' : 'Continue in a linked chat?',
+      handoffRequired
+        ? `This chat is at ${maxMessagesPerSession} messages. Start a linked continuation chat now?`
+        : `This chat has ${remainingMessages} messages left before the cap. Start a linked continuation chat now so Code Puppy can carry context forward cleanly?`,
+      [
+        { text: 'Not yet', style: 'cancel' },
+        {
+          text: 'Start handoff',
+          onPress: async () => {
+            try {
+              await startHandoffChat();
+              setInput('');
+              setStatusText('Linked continuation chat started.');
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              setStatusText(`Handoff failed: ${msg}`);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleCheckHealth = async () => {
@@ -564,12 +595,37 @@ export default function ChatScreen() {
             {!headerCollapsed && rolloverNotice ? (
               <View style={styles.noticeCard}>
                 <View style={styles.debugHeader}>
-                  <Text style={styles.noticeTitle}>Session rollover</Text>
+                  <Text style={styles.noticeTitle}>Session handoff</Text>
                   <TouchableOpacity onPress={() => setRolloverNotice(null)}>
                     <Text style={styles.debugDismiss}>Dismiss</Text>
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.noticeText}>{rolloverNotice}</Text>
+              </View>
+            ) : null}
+
+            {!headerCollapsed && handoffSuggested ? (
+              <View style={styles.noticeCard}>
+                <View style={styles.debugHeader}>
+                  <Text style={styles.noticeTitle}>
+                    {handoffRequired ? 'Chat limit reached' : 'Approaching chat limit'}
+                  </Text>
+                </View>
+                <Text style={styles.noticeText}>
+                  {handoffRequired
+                    ? `This chat has reached ${maxMessagesPerSession} messages. Start a linked continuation chat to keep going without losing context.`
+                    : `This chat has ${remainingMessages} messages left before the ${maxMessagesPerSession}-message cap. You can start a linked continuation chat now instead of getting cut off later.`}
+                </Text>
+                <TouchableOpacity
+                  style={styles.statusButton}
+                  onPress={handleStartHandoff}
+                  disabled={isLoading || isHydrating}
+                >
+                  <Text style={styles.statusButtonText}>Start linked handoff</Text>
+                </TouchableOpacity>
+                <Text style={styles.noticeFootnote} numberOfLines={5}>
+                  {handoffPromptPreview}
+                </Text>
               </View>
             ) : null}
 
@@ -761,11 +817,15 @@ export default function ChatScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Enter a coding task"
+            placeholder={
+              handoffRequired
+                ? 'This chat hit the message cap. Start a linked handoff to continue.'
+                : 'Enter a coding task'
+            }
             placeholderTextColor="#6b7280"
             value={input}
             onChangeText={setInput}
-            editable={!isLoading && !isHydrating}
+            editable={!isLoading && !isHydrating && !handoffRequired}
             multiline
             textAlignVertical="top"
             returnKeyType="default"
@@ -782,17 +842,20 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (!input.trim() || isLoading || isHydrating) && styles.sendButtonDisabled,
+              (!input.trim() || isLoading || isHydrating || handoffRequired) &&
+                styles.sendButtonDisabled,
             ]}
             onPress={handleSend}
-            disabled={!input.trim() || isLoading || isHydrating}
+            disabled={!input.trim() || isLoading || isHydrating || handoffRequired}
           >
             <Text style={styles.sendText}>
               {isHydrating
                 ? 'Loading history…'
                 : isLoading
                   ? 'Uploading snacks & summoning puppy…'
-                  : 'Send to Code Puppy'}
+                  : handoffRequired
+                    ? 'Start linked handoff above'
+                    : 'Send to Code Puppy'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -949,6 +1012,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
     lineHeight: 18,
+  },
+  noticeFootnote: {
+    marginTop: 10,
+    color: '#cbd5e1',
+    fontSize: 11,
+    lineHeight: 16,
   },
   debugCard: {
     marginTop: 12,

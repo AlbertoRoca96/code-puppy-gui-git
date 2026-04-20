@@ -288,8 +288,10 @@ export default function ChatScreen() {
       return;
     }
     initialScrollPendingRef.current = false;
-    setIsNearBottom(true);
-    scrollToBottom(false);
+    requestAnimationFrame(() => {
+      setIsNearBottom(true);
+      scrollToBottom(false);
+    });
   };
 
   const handleMessagesScrollBeginDrag = (
@@ -758,6 +760,11 @@ export default function ChatScreen() {
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             nestedScrollEnabled
             onContentSizeChange={handleMessagesContentSizeChange}
+            onLayout={() => {
+              if (initialScrollPendingRef.current && messages.length > 0) {
+                scrollToBottom(false);
+              }
+            }}
             onScroll={handleMessagesScroll}
             onScrollBeginDrag={handleMessagesScrollBeginDrag}
             scrollEventThrottle={16}

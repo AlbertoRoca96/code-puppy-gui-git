@@ -122,35 +122,34 @@ function isMeaningfulState(messages: Message[], composer = ''): boolean {
 function buildHandoffPrompt(messages: Message[]): string {
   const recentMessages = messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .slice(-12)
-    .map((message) => `${message.role.toUpperCase()}: ${message.content.trim()}`)
+    .slice(-8)
+    .map((message) => {
+      const compact = message.content.replace(/\s+/g, ' ').trim().slice(0, 280);
+      return `${message.role.toUpperCase()}: ${compact}`;
+    })
     .filter((line) => line.length > 0);
 
   const checklist = messages
     .filter((message) => message.role === 'assistant')
-    .slice(-6)
+    .slice(-4)
     .flatMap((message) =>
       message.content
         .split('\n')
         .map((line) => line.trim())
         .filter((line) => /^[-*]|^\d+[.)]/.test(line))
     )
-    .slice(-8);
+    .slice(-5);
 
   return [
-    'We are continuing from a previous Code Puppy chat session that is nearing its message cap.',
-    'Please resume the conversation without repeating solved context unless it is necessary.',
+    'Continue this coding chat from the previous session.',
+    'Do not use web search unless the user explicitly asks for it again.',
+    'Start your next reply with: "Ah yes — we left off here. Let\'s continue."',
     '',
-    'Recent conversation excerpt:',
-    recentMessages.length ? recentMessages.join('\n\n') : 'No recent messages available.',
+    'Recent context:',
+    recentMessages.length ? recentMessages.join('\n') : 'No recent messages available.',
     '',
-    'Potential active checklist items:',
-    checklist.length
-      ? checklist.join('\n')
-      : '- No explicit checklist items were captured.',
-    '',
-    'Open the next reply with: "Ah yes — we left off here. Let\'s continue."',
-    'Then continue helping based on the carried-over context above.',
+    'Open checklist:',
+    checklist.length ? checklist.join('\n') : '- No explicit checklist items captured.',
   ].join('\n');
 }
 
@@ -408,7 +407,10 @@ export function UseChat(options: UseChatOptions = {}) {
   const executeSendMessage = async (
     prompt: string,
     activeSessionId: string,
-    baseMessages: Message[]
+    baseMessages: Message[],
+    options: {
+      webSearchEnabledOverride?: boolean;
+    } = {}
   ) => {
     const draftUserMsg: Message = {
       id: `${Date.now()}_user`,
@@ -418,6 +420,8 @@ export function UseChat(options: UseChatOptions = {}) {
       attachments: [],
     };
     const optimisticMessages = [...baseMessages, draftUserMsg];
+    const effectiveWebSearchEnabled =
+      options.webSearchEnabledOverride ?? webSearchEnabled;
 
     setMessages(optimisticMessages);
     setIsLoading(true);
@@ -459,7 +463,7 @@ export function UseChat(options: UseChatOptions = {}) {
           systemPrompt,
           temperature: DEFAULT_TEMPERATURE,
           attachments: toAttachmentReferences(readyAttachments),
-          webSearch: webSearchEnabled,
+          webSearch: effectiveWebSearchEnabled,
         });
         finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
         setLastSearchDebug(fallback.search || null);
@@ -491,7 +495,7 @@ export function UseChat(options: UseChatOptions = {}) {
               systemPrompt,
               temperature: DEFAULT_TEMPERATURE,
               attachments: toAttachmentReferences(readyAttachments),
-              webSearch: webSearchEnabled,
+              webSearch: effectiveWebSearchEnabled,
             },
             {
               onDelta: (text) => {
@@ -545,7 +549,7 @@ export function UseChat(options: UseChatOptions = {}) {
             systemPrompt,
             temperature: DEFAULT_TEMPERATURE,
             attachments: toAttachmentReferences(readyAttachments),
-            webSearch: webSearchEnabled,
+            webSearch: effectiveWebSearchEnabled,
           });
           finalAssistantText = sanitizeAssistantOutput(fallback.message || 'No response');
           setLastSearchDebug(fallback.search || null);
@@ -646,7 +650,9 @@ export function UseChat(options: UseChatOptions = {}) {
     setRolloverNotice(
       `Started a linked continuation chat before hitting the ${MAX_MESSAGES_PER_SESSION}-message cap.`
     );
-    await executeSendMessage(handoffPrompt, nextSessionId, []);
+    await executeSendMessage(handoffPrompt, nextSessionId, [], {
+      webSearchEnabledOverride: false,
+    });
   };
 
   const startNewChat = () => {

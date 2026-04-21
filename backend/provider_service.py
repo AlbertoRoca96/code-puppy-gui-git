@@ -10,6 +10,20 @@ import httpx
 from fastapi import HTTPException
 
 from backend.attachments_service import build_attachment_context_from_records, extract_urls_from_messages, fetch_url_context, perform_web_search, resolve_attachment_records
+
+
+def describe_request_error(exc: httpx.RequestError, fallback: str) -> str:
+    direct = str(exc).strip()
+    if direct:
+        return direct
+    request = getattr(exc, 'request', None)
+    method = getattr(request, 'method', None)
+    url = getattr(request, 'url', None)
+    if method and url:
+        return f'{fallback} while calling {method} {url}'
+    if url:
+        return f'{fallback} while calling {url}'
+    return fallback
 from backend.config import OPENAI_VISION_MODELS, SUPABASE_ENABLED
 from backend.models import ChatRequest
 
@@ -278,7 +292,10 @@ async def invoke_chat(payload: ChatRequest, user_id: str | None = None) -> dict[
         except httpx.HTTPStatusError as exc:
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text or exc.response.reason_phrase) from exc
         except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=502,
+                detail=describe_request_error(exc, 'Chat provider request failed'),
+            ) from exc
     data = response.json()
     choices = data.get("choices") or []
     message_text = choices[0].get("message", {}).get("content", "") if choices else ""
@@ -319,5 +336,8 @@ async def stream_chat(payload: ChatRequest, user_id: str | None = None) -> Async
         except httpx.HTTPStatusError as exc:
             raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text or exc.response.reason_phrase) from exc
         except httpx.RequestError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=502,
+                detail=describe_request_error(exc, 'Streaming chat provider request failed'),
+            ) from exc
     yield {"event": "done", "content": full_text, "model": forwarded_model, "search": search_debug}

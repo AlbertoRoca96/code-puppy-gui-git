@@ -387,7 +387,7 @@ async def perform_web_search(query: str) -> dict[str, Any]:
                 html_response.raise_for_status()
                 lines, result_sources = extract_html_search_results(html_response.text)
             except Exception as exc:
-                detail = instant_error or str(exc)
+                detail = (instant_error or str(exc) or 'DuckDuckGo search request failed').strip()
                 raise HTTPException(status_code=502, detail=f'Web search failed: {detail}') from exc
 
     result_sources = dedupe_sources(result_sources, limit=5)

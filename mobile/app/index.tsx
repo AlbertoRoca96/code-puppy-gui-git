@@ -517,7 +517,15 @@ export default function ChatScreen() {
               </View>
               <TouchableOpacity
                 style={styles.collapseButton}
-                onPress={() => setHeaderCollapsed((prev) => !prev)}
+                onPress={() => {
+                  setHeaderCollapsed((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      setShowModelControls(false);
+                    }
+                    return next;
+                  });
+                }}
               >
                 <Text style={styles.collapseButtonText}>
                   {headerCollapsed ? 'Expand' : 'Minimize'}
@@ -558,41 +566,43 @@ export default function ChatScreen() {
               <Text style={styles.sessionText}>Title: {title}</Text>
             )}
 
-            <View style={styles.headerButtonRow}>
-              <TouchableOpacity
-                style={styles.statusButton}
-                onPress={handleCheckHealth}
-                disabled={checking}
-              >
-                <Text style={styles.statusButtonText}>
-                  {checking ? 'Checking…' : 'Check backend'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.secondaryButton,
-                  webSearchEnabled && styles.secondaryButtonActive,
-                ]}
-                onPress={() => setWebSearchEnabled(!webSearchEnabled)}
-              >
-                <Text
-                  style={[
-                    styles.secondaryButtonText,
-                    webSearchEnabled && styles.secondaryButtonTextActive,
-                  ]}
+            {!headerCollapsed ? (
+              <View style={styles.headerButtonRow}>
+                <TouchableOpacity
+                  style={styles.statusButton}
+                  onPress={handleCheckHealth}
+                  disabled={checking}
                 >
-                  Search: {webSearchEnabled ? 'On' : 'Off'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() => setShowModelControls((prev) => !prev)}
-              >
-                <Text style={styles.secondaryButtonText}>
-                  {showModelControls ? 'Hide controls' : 'Models & tools'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text style={styles.statusButtonText}>
+                    {checking ? 'Checking…' : 'Check backend'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryButton,
+                    webSearchEnabled && styles.secondaryButtonActive,
+                  ]}
+                  onPress={() => setWebSearchEnabled(!webSearchEnabled)}
+                >
+                  <Text
+                    style={[
+                      styles.secondaryButtonText,
+                      webSearchEnabled && styles.secondaryButtonTextActive,
+                    ]}
+                  >
+                    Search: {webSearchEnabled ? 'On' : 'Off'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => setShowModelControls((prev) => !prev)}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {showModelControls ? 'Hide controls' : 'Models & tools'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
 
             {!headerCollapsed && rolloverNotice ? (
               <View style={styles.noticeCard}>
